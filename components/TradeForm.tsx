@@ -48,6 +48,21 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
     setTrade((t) => ({ ...t, legs: t.legs.filter((_, idx) => idx !== i) }));
   }
 
+  function normalize(t: Trade): Trade {
+    // Sanitize NaN/empty numbers before validation/save
+    return {
+      ...t,
+      riskFreeRate: Number.isFinite(t.riskFreeRate) ? t.riskFreeRate : 0.045,
+      underlyingPrice: Number.isFinite(t.underlyingPrice) ? t.underlyingPrice : 0,
+      legs: t.legs.map((l) => ({
+        ...l,
+        strike: Number.isFinite(l.strike) ? l.strike : 0,
+        quantity: Number.isFinite(l.quantity) ? l.quantity : 1,
+        premium: Number.isFinite(l.premium) ? l.premium : 0,
+      })),
+    };
+  }
+
   function validate(t: Trade): string | null {
     if (!t.symbol.trim()) return "Symbol is required";
     if (!t.underlyingPrice || t.underlyingPrice <= 0) return "Underlying price must be greater than 0";
@@ -64,17 +79,24 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
   }
 
   async function submit() {
-    const err = validate(trade);
+    const clean = normalize(trade);
+    const err = validate(clean);
     if (err) {
       setError(err);
+      // Scroll the form into view so the user notices the inline error
+      try {
+        document.querySelector('[data-form-error]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch {}
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await onSave(trade);
+      await onSave(clean);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "save failed");
+      console.error("Save failed:", e);
+      const msg = e instanceof Error ? e.message : "save failed";
+      setError(`Save failed: ${msg}`);
     } finally {
       setBusy(false);
     }
@@ -219,9 +241,21 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
         </Field>
       </div>
 
-      {error && <div className="text-sm text-loss">{error}</div>}
+      {error && (
+        <div
+          data-form-error
+          className="rounded-lg border border-loss/40 bg-loss/10 p-3 text-sm loss"
+        >
+          <strong>Can&rsquo;t save:</strong> {error}
+        </div>
+      )}
 
-      <button type="button" onClick={submit} disabled={busy} className="btn-primary w-full rounded-lg px-4 py-3 text-base font-semibold">
+      <button
+        type="button"
+        onClick={submit}
+        disabled={busy}
+        className="btn-primary w-full rounded-lg px-4 py-3 text-base font-semibold"
+      >
         {busy ? "Saving…" : "Save trade"}
       </button>
     </div>

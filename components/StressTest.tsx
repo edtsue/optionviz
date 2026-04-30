@@ -108,15 +108,11 @@ export function StressTest({ trade, maxDaysForward }: Props) {
           onChange={setIvShock}
           formatted={`${ivShock >= 0 ? "+" : ""}${ivShock}%`}
         />
-        <Slider
+        <DayButtons
           label="Days forward"
-          unit="d"
-          min={0}
-          max={Math.max(1, Math.round(maxDaysForward))}
-          step={1}
           value={daysForward}
           onChange={setDaysForward}
-          formatted={`${daysForward}d`}
+          max={Math.max(1, Math.round(maxDaysForward))}
         />
       </div>
 
@@ -144,6 +140,58 @@ export function StressTest({ trade, maxDaysForward }: Props) {
           tone={stressedGreeks.theta > 0 ? "gain" : stressedGreeks.theta < 0 ? "loss" : ""}
           sub={`Δ ${(stressedGreeks.theta - baseGreeks.theta).toFixed(2)}`}
         />
+      </div>
+    </div>
+  );
+}
+
+function DayButtons({
+  label,
+  value,
+  onChange,
+  max,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  max: number;
+}) {
+  const presets = [0, 1, 3, 7, 14, 30].filter((d) => d <= max);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="muted">{label}</span>
+        <span className="kpi-xs">{value === 0 ? "now" : `+${value}d`}</span>
+      </div>
+      <div className="flex flex-wrap gap-1 pt-1">
+        {presets.map((d) => {
+          const active = value === d;
+          return (
+            <button
+              type="button"
+              key={d}
+              onClick={() => onChange(d)}
+              className={`rounded-md border px-2 py-0.5 text-[11px] transition ${
+                active
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border hover:border-accent/40"
+              }`}
+            >
+              {d === 0 ? "Now" : `+${d}D`}
+            </button>
+          );
+        })}
+        {max > 30 && (
+          <button
+            type="button"
+            onClick={() => onChange(max)}
+            className={`rounded-md border px-2 py-0.5 text-[11px] transition ${
+              value === max ? "border-accent bg-accent/10 text-accent" : "border-border hover:border-accent/40"
+            }`}
+          >
+            Expiry ({max}D)
+          </button>
+        )}
       </div>
     </div>
   );

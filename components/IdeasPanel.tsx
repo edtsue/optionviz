@@ -107,9 +107,7 @@ export function IdeasPanel({ trade }: { trade: Trade }) {
               </div>
               <p className="mt-1 text-sm text-gray-300">{it.thesis}</p>
               <div className="mt-2 text-xs text-gray-400">
-                <pre className="font-mono whitespace-pre-wrap">
-                  {typeof it.structure === "string" ? it.structure : JSON.stringify(it.structure, null, 2)}
-                </pre>
+                <pre className="font-mono whitespace-pre-wrap">{formatStructure(it.structure)}</pre>
               </div>
               <div className="mt-2 text-xs">
                 <span className="text-gray-400">Tradeoffs: </span>
@@ -125,4 +123,37 @@ export function IdeasPanel({ trade }: { trade: Trade }) {
       )}
     </div>
   );
+}
+
+function formatStructure(s: unknown): string {
+  if (typeof s === "string") {
+    return s
+      .replace(/```[\w]*\n?/g, "")
+      .replace(/```/g, "")
+      .replace(/`([^`]+)`/g, "$1")
+      .trim();
+  }
+  if (Array.isArray(s)) {
+    return s
+      .map((leg) => {
+        if (typeof leg === "string") return leg;
+        if (leg && typeof leg === "object") {
+          const o = leg as Record<string, unknown>;
+          const action = String(o.action ?? o.side ?? "");
+          const qty = o.qty ?? o.quantity ?? 1;
+          const type = String(o.type ?? "");
+          const strike = o.strike != null ? `$${o.strike}` : "";
+          const exp = o.expiration ?? o.expiry ?? "";
+          return [action, `${qty}×`, type, strike, exp].filter(Boolean).join(" ");
+        }
+        return String(leg);
+      })
+      .join("\n");
+  }
+  if (s && typeof s === "object") {
+    return Object.entries(s as Record<string, unknown>)
+      .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join("\n");
+  }
+  return String(s);
 }

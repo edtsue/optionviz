@@ -43,7 +43,7 @@ export function ChatLauncher() {
         throw new Error(j.error ?? `Chat failed (${res.status})`);
       }
       const { reply } = (await res.json()) as { reply: string };
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      setMessages((m) => [...m, { role: "assistant", content: stripFormatting(reply) }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -159,6 +159,18 @@ export function ChatLauncher() {
       )}
     </>
   );
+}
+
+function stripFormatting(s: string): string {
+  // Remove markdown fences and inline backticks; collapse extra blank lines
+  return s
+    .replace(/```[\w]*\n?/g, "")
+    .replace(/```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function SuggestedPrompt({ text, onClick }: { text: string; onClick: (s: string) => void }) {

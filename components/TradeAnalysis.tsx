@@ -125,7 +125,12 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         pnlAt={pnlAt}
         midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
       />
-      <TimeSlider value={dayProgress} onChange={setDayProgress} dteAtTarget={data.dteAtTarget} />
+      <TimeSlider
+        value={dayProgress}
+        onChange={setDayProgress}
+        dteAtTarget={data.dteAtTarget}
+        totalDte={dteToLastExpiry}
+      />
       <StressTest trade={data.filled} maxDaysForward={dteToLastExpiry} />
       {data.kpis.length > 0 && (
         <div className="card card-tight">
