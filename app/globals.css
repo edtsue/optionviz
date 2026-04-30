@@ -5,6 +5,11 @@
 :root {
   color-scheme: dark;
   --bg: #06080a;
+  /* default theme: lime (Trade) */
+  --accent: var(--accent);
+  --accent-rgb: 163 230 53;
+  --accent-dim: #65a30d;
+  --accent-dim-rgb: 101 163 13;
 }
 
 html, body { background: var(--bg); color: #e5e7eb; min-height: 100%; }
@@ -13,7 +18,7 @@ body {
   font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "SF Pro Text", sans-serif;
   -webkit-font-smoothing: antialiased;
   background-image:
-    radial-gradient(1200px 800px at 0% 0%, rgba(163, 230, 53, 0.05), transparent 60%),
+    radial-gradient(1200px 800px at 0% 0%, rgba(var(--accent-rgb), 0.05), transparent 60%),
     radial-gradient(1000px 600px at 100% 100%, rgba(244, 63, 94, 0.04), transparent 60%);
   background-attachment: fixed;
 }
@@ -35,17 +40,17 @@ input, select, textarea, button {
   transition: border-color 0.15s, background-color 0.15s;
 }
 input:focus, select:focus, textarea:focus {
-  outline: 1px solid #a3e635;
+  outline: 1px solid var(--accent);
   outline-offset: -1px;
-  border-color: rgba(163, 230, 53, 0.7);
+  border-color: rgba(var(--accent-rgb), 0.7);
   background: rgba(255, 255, 255, 0.06);
 }
 button { cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-primary {
-  background: linear-gradient(180deg, #a3e635 0%, #65a30d 100%);
-  border-color: rgba(163, 230, 53, 0.5);
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
+  border-color: rgba(var(--accent-rgb), 0.5);
   color: #0a1502;
   font-weight: 600;
 }
@@ -140,7 +145,7 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   height: 16px;
   width: 16px;
-  background: #a3e635;
+  background: var(--accent);
   border: 2px solid rgba(34,211,238,0.4);
   border-radius: 999px;
   cursor: pointer;

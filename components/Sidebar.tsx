@@ -29,8 +29,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex flex-col gap-1">
-        <NavLink href="/" label="Trade" active={pathname === "/" || pathname?.startsWith("/trade/")} onNav={onNavigate} />
-        <NavLink href="/portfolio" label="Portfolio" active={pathname === "/portfolio"} onNav={onNavigate} />
+        <NavLink
+          href="/"
+          label="Trade"
+          dot="#a3e635"
+          active={pathname === "/" || !!pathname?.startsWith("/trade/")}
+          onNav={onNavigate}
+        />
+        <NavLink
+          href="/portfolio"
+          label="Portfolio"
+          dot="#22d3ee"
+          active={pathname === "/portfolio"}
+          onNav={onNavigate}
+        />
       </nav>
 
       <button
@@ -86,22 +98,29 @@ function NavLink({
   href,
   label,
   active,
+  dot,
   onNav,
 }: {
   href: string;
   label: string;
   active: boolean;
+  dot: string;
   onNav?: () => void;
 }) {
   return (
     <Link
       href={href}
       onClick={onNav}
-      className={`rounded-lg px-3 py-2 text-sm transition ${
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
         active ? "bg-white/[0.06] text-white" : "text-textDim hover:bg-white/[0.03] hover:text-white"
       }`}
+      style={active ? { boxShadow: `inset 0 0 0 1px ${dot}55` } : undefined}
     >
-      {label}
+      <span
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ background: dot, boxShadow: active ? `0 0 8px ${dot}` : "none" }}
+      />
+      <span>{label}</span>
     </Link>
   );
 }

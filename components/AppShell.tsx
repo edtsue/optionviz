@@ -1,12 +1,48 @@
 "use client";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
+
+interface Theme {
+  accent: string;
+  accentRgb: string;
+  accentDim: string;
+  accentDimRgb: string;
+}
+
+const TRADE: Theme = {
+  accent: "#a3e635",
+  accentRgb: "163 230 53",
+  accentDim: "#65a30d",
+  accentDimRgb: "101 163 13",
+};
+
+const PORTFOLIO: Theme = {
+  accent: "#22d3ee",
+  accentRgb: "34 211 238",
+  accentDim: "#0e7490",
+  accentDimRgb: "14 116 144",
+};
+
+function themeFor(pathname: string | null): Theme {
+  if (pathname?.startsWith("/portfolio")) return PORTFOLIO;
+  return TRADE;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const theme = themeFor(pathname);
+
+  const themeStyle = {
+    "--accent": theme.accent,
+    "--accent-rgb": theme.accentRgb,
+    "--accent-dim": theme.accentDim,
+    "--accent-dim-rgb": theme.accentDimRgb,
+  } as React.CSSProperties;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen" style={themeStyle}>
       {/* Mobile top bar */}
       <header className="fixed inset-x-0 top-0 z-30 flex h-12 items-center justify-between border-b border-border bg-bg/70 px-3 backdrop-blur md:hidden">
         <button
