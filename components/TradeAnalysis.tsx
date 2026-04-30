@@ -15,13 +15,13 @@ import { yearsBetween } from "@/lib/black-scholes";
 import { PayoffChart } from "@/components/PayoffChart";
 import { TimeSlider } from "@/components/TimeSlider";
 import { Inspector } from "@/components/Inspector";
-import { WhatIfBar } from "@/components/WhatIfBar";
 import { StressTest } from "@/components/StressTest";
 import { ResizableSplit } from "@/components/ResizableSplit";
 
 export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
   const [dayProgress, setDayProgress] = useState(0);
   const [scrubSpot, setScrubSpot] = useState<number | null>(null);
+  const [showStress, setShowStress] = useState(false);
 
   const ready = useMemo(() => {
     if (!trade.legs.length) return false;
@@ -76,25 +76,6 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
     );
   }
 
-  // P/L lookup at any spot using the precomputed payoff series
-  function pnlAt(spot: number, series: "today" | "mid" | "expiry"): number {
-    if (!data) return 0;
-    const arr = data.customSeries;
-    if (!arr.length) return 0;
-    if (spot <= arr[0].spot) return arr[0][series];
-    if (spot >= arr[arr.length - 1].spot) return arr[arr.length - 1][series];
-    // Linear interpolate
-    for (let i = 1; i < arr.length; i++) {
-      if (arr[i].spot >= spot) {
-        const a = arr[i - 1];
-        const b = arr[i];
-        const t = (spot - a.spot) / (b.spot - a.spot);
-        return a[series] + t * (b[series] - a[series]);
-      }
-    }
-    return 0;
-  }
-
   // Estimate days to last expiry from trade for stress test slider
   const dteToLastExpiry = data
     ? Math.max(
@@ -119,34 +100,27 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         scrubSpot={scrubSpot}
         onScrub={setScrubSpot}
       />
-      <WhatIfBar
-        underlying={data.filled.underlyingPrice}
-        scrubSpot={scrubSpot}
-        onScrub={setScrubSpot}
-        pnlAt={pnlAt}
-        midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
-      />
       <TimeSlider
         value={dayProgress}
         onChange={setDayProgress}
         dteAtTarget={data.dteAtTarget}
         totalDte={dteToLastExpiry}
       />
-      <StressTest trade={data.filled} maxDaysForward={dteToLastExpiry} />
-      {data.kpis.length > 0 && (
-        <div className="card card-tight">
-          <div className="label mb-2">{data.strategy.label} stats</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 data-grid">
-            {data.kpis.map((k) => (
-              <div key={k.label} className="flex flex-col">
-                <span className="text-[10px] muted">{k.label}</span>
-                <span className="kpi-sm">{k.value}</span>
-                {k.hint && <span className="text-[10px] muted">{k.hint}</span>}
-              </div>
-            ))}
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowStress((v) => !v)}
+          className="w-full rounded-lg border border-border bg-white/[0.02] px-3 py-2 text-left text-sm hover:border-accent/40"
+        >
+          <span className="muted text-[11px] uppercase tracking-wider">Stress test</span>{" "}
+          <span className="ml-1 muted">{showStress ? "▾" : "▸"}</span>
+        </button>
+        {showStress && (
+          <div className="mt-2">
+            <StressTest trade={data.filled} maxDaysForward={dteToLastExpiry} />
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 

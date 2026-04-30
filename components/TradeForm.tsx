@@ -120,50 +120,57 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
               onChange={(e) => setTrade({ ...trade, underlyingPrice: +e.target.value })}
             />
           </Field>
-          <Field label="Risk-free rate (%)">
-            <div className="relative">
+        </div>
+        <details className="group">
+          <summary className="cursor-pointer text-[11px] muted hover:text-text">
+            Advanced ▸
+          </summary>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Field label="Risk-free rate (%)">
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.1"
+                  value={(trade.riskFreeRate * 100).toFixed(2)}
+                  onChange={(e) => setTrade({ ...trade, riskFreeRate: +e.target.value / 100 })}
+                  className="w-full pr-7"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs muted">%</span>
+              </div>
+            </Field>
+            <Field label="Shares (covered)">
               <input
                 type="number"
-                step="0.1"
-                value={(trade.riskFreeRate * 100).toFixed(2)}
-                onChange={(e) => setTrade({ ...trade, riskFreeRate: +e.target.value / 100 })}
-                className="w-full pr-7"
+                value={trade.underlying?.shares ?? 0}
+                onChange={(e) => {
+                  const shares = +e.target.value;
+                  setTrade({
+                    ...trade,
+                    underlying:
+                      shares > 0
+                        ? { shares, costBasis: trade.underlying?.costBasis ?? trade.underlyingPrice }
+                        : null,
+                  });
+                }}
               />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs muted">%</span>
-            </div>
-          </Field>
-          <Field label="Shares (covered)">
-            <input
-              type="number"
-              value={trade.underlying?.shares ?? 0}
-              onChange={(e) => {
-                const shares = +e.target.value;
-                setTrade({
-                  ...trade,
-                  underlying:
-                    shares > 0
-                      ? { shares, costBasis: trade.underlying?.costBasis ?? trade.underlyingPrice }
-                      : null,
-                });
-              }}
-            />
-          </Field>
-        </div>
-        {trade.underlying && (
-          <Field label="Share cost basis">
-            <input
-              type="number"
-              step="0.01"
-              value={trade.underlying.costBasis}
-              onChange={(e) =>
-                setTrade({
-                  ...trade,
-                  underlying: { ...trade.underlying!, costBasis: +e.target.value },
-                })
-              }
-            />
-          </Field>
-        )}
+            </Field>
+            {trade.underlying && (
+              <Field label="Share cost basis">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={trade.underlying.costBasis}
+                  onChange={(e) =>
+                    setTrade({
+                      ...trade,
+                      underlying: { ...trade.underlying!, costBasis: +e.target.value },
+                    })
+                  }
+                />
+              </Field>
+            )}
+          </div>
+        </details>
       </div>
 
       <div className="space-y-3">
@@ -231,15 +238,18 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
         </button>
       </div>
 
-      <div className="card">
-        <Field label="Notes">
+      <details className="card group">
+        <summary className="cursor-pointer text-[11px] muted hover:text-text">
+          Notes ▸
+        </summary>
+        <div className="mt-3">
           <textarea
             rows={3}
             value={trade.notes ?? ""}
             onChange={(e) => setTrade({ ...trade, notes: e.target.value })}
           />
-        </Field>
-      </div>
+        </div>
+      </details>
 
       {error && (
         <div
