@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PortfolioSnapshot, PortfolioAnalysis } from "@/types/portfolio";
 import { resizeImage } from "@/lib/image";
+import { HoldingDetail } from "@/components/HoldingDetail";
 
 interface StagedImage {
   file: File;
@@ -275,8 +276,19 @@ export default function PortfolioPage() {
 }
 
 function PortfolioOverview({ snapshot }: { snapshot: PortfolioSnapshot }) {
-  const total = snapshot.totalValue ??
+  const total =
+    snapshot.totalValue ??
     snapshot.holdings.reduce((acc, h) => acc + (h.marketValue ?? 0), 0);
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  function toggle(i: number) {
+    setExpanded((cur) => (cur === i ? null : i));
+  }
+
+  const sorted = snapshot.holdings
+    .slice()
+    .sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0));
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -285,44 +297,59 @@ function PortfolioOverview({ snapshot }: { snapshot: PortfolioSnapshot }) {
         <Stat label="Holdings" value={`${snapshot.holdings.length}`} />
         <Stat label="As of" value={snapshot.asOf ?? "—"} />
       </div>
-      <div className="card overflow-x-auto">
+      <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="text-xs text-gray-400">
             <tr>
-              <th className="px-2 py-2 text-left">Symbol</th>
-              <th className="px-2 py-2 text-right">Qty</th>
-              <th className="px-2 py-2 text-right">Price</th>
-              <th className="px-2 py-2 text-right">Value</th>
-              <th className="px-2 py-2 text-right">P/L</th>
-              <th className="px-2 py-2 text-right">% of port</th>
+              <th className="px-3 py-3 text-left"></th>
+              <th className="px-3 py-3 text-left">Symbol</th>
+              <th className="px-3 py-3 text-right">Qty</th>
+              <th className="px-3 py-3 text-right">Price</th>
+              <th className="px-3 py-3 text-right">Value</th>
+              <th className="px-3 py-3 text-right">P/L</th>
+              <th className="px-3 py-3 text-right">% of port</th>
             </tr>
           </thead>
           <tbody>
-            {snapshot.holdings
-              .slice()
-              .sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0))
-              .map((h, i) => {
-                const pct = total ? ((h.marketValue ?? 0) / total) * 100 : 0;
-                const pnl = h.unrealizedPnL ?? 0;
-                return (
-                  <tr key={i} className="border-t border-border">
-                    <td className="px-2 py-2">
+            {sorted.map((h, i) => {
+              const pct = total ? ((h.marketValue ?? 0) / total) * 100 : 0;
+              const pnl = h.unrealizedPnL ?? 0;
+              const isOpen = expanded === i;
+              return (
+                <>
+                  <tr
+                    key={`row-${i}`}
+                    onClick={() => toggle(i)}
+                    className={`cursor-pointer border-t border-border transition hover:bg-bg/50 ${isOpen ? "bg-bg/50" : ""}`}
+                  >
+                    <td className="px-3 py-2 text-gray-500">
+                      <span className={`inline-block transition ${isOpen ? "rotate-90" : ""}`}>›</span>
+                    </td>
+                    <td className="px-3 py-2">
                       <div className="font-semibold">{h.symbol}</div>
                       {h.name && <div className="text-xs text-gray-500">{h.name}</div>}
                     </td>
-                    <td className="px-2 py-2 text-right">{h.quantity}</td>
-                    <td className="px-2 py-2 text-right">{h.marketPrice != null ? `$${h.marketPrice.toFixed(2)}` : "—"}</td>
-                    <td className="px-2 py-2 text-right">{h.marketValue != null ? `$${h.marketValue.toLocaleString()}` : "—"}</td>
-                    <td className={`px-2 py-2 text-right ${pnl > 0 ? "text-gain" : pnl < 0 ? "text-loss" : ""}`}>
+                    <td className="px-3 py-2 text-right">{h.quantity}</td>
+                    <td className="px-3 py-2 text-right">{h.marketPrice != null ? `$${h.marketPrice.toFixed(2)}` : "—"}</td>
+                    <td className="px-3 py-2 text-right">{h.marketValue != null ? `$${h.marketValue.toLocaleString()}` : "—"}</td>
+                    <td className={`px-3 py-2 text-right ${pnl > 0 ? "text-gain" : pnl < 0 ? "text-loss" : ""}`}>
                       {h.unrealizedPnL != null ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString()}` : "—"}
                       {h.unrealizedPnLPct != null && (
                         <div className="text-xs">{`${pnl >= 0 ? "+" : ""}${h.unrealizedPnLPct.toFixed(1)}%`}</div>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-right">{pct.toFixed(1)}%</td>
+                    <td className="px-3 py-2 text-right">{pct.toFixed(1)}%</td>
                   </tr>
-                );
-              })}
+                  {isOpen && (
+                    <tr key={`detail-${i}`} className="border-t border-border bg-bg/30">
+                      <td colSpan={7} className="p-0">
+                        <HoldingDetail holding={h} totalPortfolioValue={total ?? 0} />
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>
