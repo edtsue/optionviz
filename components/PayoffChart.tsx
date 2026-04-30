@@ -135,6 +135,8 @@ export function PayoffChart({
               stroke="none"
               fill="url(#gainFill)"
               isAnimationActive={false}
+              tooltipType="none"
+              legendType="none"
             />
             <Area
               type="monotone"
@@ -142,6 +144,8 @@ export function PayoffChart({
               stroke="none"
               fill="url(#lossFill)"
               isAnimationActive={false}
+              tooltipType="none"
+              legendType="none"
             />
 
             <ReferenceLine y={0} stroke="rgba(255,255,255,0.25)" />
