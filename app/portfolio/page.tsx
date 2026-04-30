@@ -101,6 +101,8 @@ export default function PortfolioPage() {
     if (!snapshot) return;
     setBusyAnalyze(true);
     setError(null);
+    setSelectedSymbol(null);
+    setPaneOpen(true);
     try {
       const res = await fetch("/api/analyze-portfolio", {
         method: "POST",
@@ -205,6 +207,15 @@ export default function PortfolioPage() {
           <p className="text-xs muted">Account-wide analysis · concentration · ideas</p>
         </div>
         <div className="flex items-center gap-2">
+          {snapshot && (
+            <button
+              onClick={() => setPaneOpen((v) => !v)}
+              className="btn-ghost rounded-lg px-3 py-1.5 text-sm"
+              title={paneOpen ? "Hide analysis pane" : "Show analysis pane"}
+            >
+              {paneOpen ? "Hide pane ›" : "Show pane ‹"}
+            </button>
+          )}
           {snapshot && (
             <button
               onClick={analyze}
