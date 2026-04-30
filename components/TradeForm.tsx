@@ -159,7 +159,7 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field label="Side">
                 <select value={leg.side} onChange={(e) => setLeg(i, { side: e.target.value as Leg["side"] })}>
                   <option value="long">Long (buy)</option>
@@ -195,13 +195,13 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
                   onChange={(e) => setLeg(i, { premium: +e.target.value })}
                 />
               </Field>
-              <Field label="Expiration">
-                <ExpirationPicker
-                  value={leg.expiration}
-                  onChange={(d) => setLeg(i, { expiration: d })}
-                />
-              </Field>
             </div>
+            <Field label="Expiration">
+              <ExpirationPicker
+                value={leg.expiration}
+                onChange={(d) => setLeg(i, { expiration: d })}
+              />
+            </Field>
           </div>
         ))}
         <button type="button" onClick={addLeg} className="rounded-lg px-3 py-2 text-sm">
@@ -230,9 +230,11 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block space-y-1">
+    <label className="block min-w-0 space-y-1">
       <span className="label">{label}</span>
-      <div className="[&>input]:w-full [&>select]:w-full [&>textarea]:w-full">{children}</div>
+      <div className="min-w-0 [&_input]:w-full [&_input]:min-w-0 [&_select]:w-full [&_select]:min-w-0 [&_textarea]:w-full">
+        {children}
+      </div>
     </label>
   );
 }
@@ -286,7 +288,12 @@ function ExpirationPicker({
           );
         })}
       </div>
-      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full min-w-0"
+      />
       {dte != null && dte >= 0 && (
         <div className="text-[10px] muted">{dte === 0 ? "Expires today" : `${dte}d to expiry`}</div>
       )}

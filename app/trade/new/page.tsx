@@ -148,8 +148,8 @@ function NewTradeInner() {
   }
 
   return (
-    <div className="grid gap-4 p-4 md:p-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <section className="space-y-3 min-w-0">
+    <div className="grid gap-4 p-4 md:p-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+      <section className="min-w-0 overflow-hidden space-y-3">
         <div className="label">Capture</div>
         <TicketUpload
           onParsed={(p) => {
