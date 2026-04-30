@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
     const ideas = JSON.parse(cleaned);
     return NextResponse.json({ ideas });
   } catch (err) {
+    console.error("[ideas] failed:", err);
     const message = err instanceof Error ? err.message : "ideas failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

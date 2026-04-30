@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
     const parsed = TicketSchema.parse(extractJson(text));
     return NextResponse.json(parsed);
   } catch (err) {
+    console.error("[parse-ticket] failed:", err);
     const message = err instanceof Error ? err.message : "parse failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

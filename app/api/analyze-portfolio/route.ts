@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     const analysis = JSON.parse(cleaned);
     return NextResponse.json({ analysis });
   } catch (err) {
+    console.error("[analyze-portfolio] failed:", err);
     const m = err instanceof Error ? err.message : "analyze failed";
     return NextResponse.json({ error: m }, { status: 500 });
   }

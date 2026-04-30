@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
     const parsed = PortfolioSchema.parse(extractJson(text));
     return NextResponse.json(parsed);
   } catch (err) {
+    console.error("[parse-portfolio] failed:", err);
     const m = err instanceof Error ? err.message : "parse failed";
     return NextResponse.json({ error: m }, { status: 500 });
   }
