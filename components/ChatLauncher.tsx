@@ -53,29 +53,29 @@ export function ChatLauncher() {
 
   return (
     <>
-      {/* Floating launcher */}
+      {/* Floating launcher — positioned past the sidebar on desktop so it doesn't
+          overlap the Settings button at the bottom of the sidebar. */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Chat with Claude"
-        className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border shadow-xl transition hover:scale-105"
+        className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border shadow-xl transition hover:scale-105 md:left-[16rem]"
         style={{
-          background: "var(--accent)",
-          color: "#0a1502",
-          borderColor: "rgba(255,255,255,0.2)",
-          boxShadow:
-            "0 8px 24px rgba(0,0,0,0.4), 0 0 0 6px rgb(var(--accent-rgb) / 0.18)",
+          background: "#f5f1ea",
+          color: "#d97757",
+          borderColor: "rgba(217, 119, 87, 0.4)",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.4), 0 0 0 6px rgba(217, 119, 87, 0.16)",
         }}
       >
         <ClaudeMark size={22} />
       </button>
 
-      {/* Chat panel */}
+      {/* Chat panel — same horizontal alignment as launcher on desktop */}
       {open && (
-        <div className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:bottom-4 md:left-20 md:right-auto md:max-h-[70vh] md:w-[400px] md:rounded-2xl">
+        <div className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:bottom-4 md:left-[16rem] md:right-auto md:max-h-[70vh] md:w-[400px] md:rounded-2xl">
           <div className="card card-flush flex h-[70vh] flex-col overflow-hidden md:h-[600px]">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <div className="flex items-center gap-2">
-                <ClaudeMark className="text-accent" size={16} />
+                <ClaudeMark size={16} className="text-[#d97757]" />
                 <div>
                   <div className="text-sm font-semibold">Ask Claude</div>
                   <div className="text-[10px] muted">
