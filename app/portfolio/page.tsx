@@ -212,8 +212,19 @@ export default function PortfolioPage() {
 
         {staged && (
           <div className="space-y-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={staged.dataUrl} alt="Staged" className="max-h-72 rounded-lg border border-border" />
+            <div className="relative inline-block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={staged.dataUrl} alt="Staged" className="max-h-72 rounded-lg border border-border" />
+              <button
+                type="button"
+                onClick={cancelStaged}
+                disabled={busyParse}
+                aria-label="Remove screenshot"
+                className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg text-sm text-gray-300 shadow hover:border-loss hover:text-loss"
+              >
+                ×
+              </button>
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
               <span>
                 {staged.file.name || "pasted image"} · resized to {staged.width}×{staged.height} ·{" "}
