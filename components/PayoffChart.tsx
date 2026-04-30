@@ -20,6 +20,9 @@ interface Props {
   midLabel?: string;
   /** Optional 1σ band edges from current spot at expiry (lower, upper) */
   oneSigmaBand?: [number, number] | null;
+  /** Locked scrub spot (vertical line + readout); null = follow cursor only */
+  scrubSpot?: number | null;
+  onScrub?: (spot: number | null) => void;
 }
 
 export function PayoffChart({
@@ -28,6 +31,8 @@ export function PayoffChart({
   breakevens,
   midLabel = "Mid",
   oneSigmaBand,
+  scrubSpot,
+  onScrub,
 }: Props) {
   // Build positive/negative envelopes from the expiry curve so we can shade
   // the gain and loss zones behind the lines.
@@ -53,7 +58,19 @@ export function PayoffChart({
       </div>
       <div className="h-80 w-full sm:h-[28rem]">
         <ResponsiveContainer>
-          <ComposedChart data={shaded} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+          <ComposedChart
+            data={shaded}
+            margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+            onMouseMove={(state: { activeLabel?: number | string }) => {
+              if (!onScrub) return;
+              const v = state?.activeLabel;
+              if (typeof v === "number") onScrub(v);
+              else if (typeof v === "string") {
+                const n = parseFloat(v);
+                if (Number.isFinite(n)) onScrub(n);
+              }
+            }}
+          >
             <defs>
               <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#10b981" stopOpacity={0.28} />
@@ -145,6 +162,22 @@ export function PayoffChart({
                 fontWeight: 600,
               }}
             />
+
+            {/* Scrub line — user-driven what-if */}
+            {scrubSpot != null && (
+              <ReferenceLine
+                x={scrubSpot}
+                stroke="#fbbf24"
+                strokeWidth={2}
+                label={{
+                  value: `$${scrubSpot.toFixed(2)}`,
+                  position: "insideBottomLeft",
+                  fill: "#fbbf24",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              />
+            )}
 
             {/* Breakeven lines, always labeled */}
             {breakevens.map((b, i) => (

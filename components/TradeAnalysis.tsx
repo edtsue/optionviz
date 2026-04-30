@@ -15,9 +15,12 @@ import { yearsBetween } from "@/lib/black-scholes";
 import { PayoffChart } from "@/components/PayoffChart";
 import { TimeSlider } from "@/components/TimeSlider";
 import { Inspector } from "@/components/Inspector";
+import { WhatIfBar } from "@/components/WhatIfBar";
+import { StressTest } from "@/components/StressTest";
 
 export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
   const [dayProgress, setDayProgress] = useState(0);
+  const [scrubSpot, setScrubSpot] = useState<number | null>(null);
 
   const ready = useMemo(() => {
     if (!trade.legs.length) return false;
@@ -72,6 +75,38 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
     );
   }
 
+  // P/L lookup at any spot using the precomputed payoff series
+  function pnlAt(spot: number, series: "today" | "mid" | "expiry"): number {
+    if (!data) return 0;
+    const arr = data.customSeries;
+    if (!arr.length) return 0;
+    if (spot <= arr[0].spot) return arr[0][series];
+    if (spot >= arr[arr.length - 1].spot) return arr[arr.length - 1][series];
+    // Linear interpolate
+    for (let i = 1; i < arr.length; i++) {
+      if (arr[i].spot >= spot) {
+        const a = arr[i - 1];
+        const b = arr[i];
+        const t = (spot - a.spot) / (b.spot - a.spot);
+        return a[series] + t * (b[series] - a[series]);
+      }
+    }
+    return 0;
+  }
+
+  // Estimate days to last expiry from trade for stress test slider
+  const dteToLastExpiry = data
+    ? Math.max(
+        1,
+        Math.round(
+          yearsBetween(
+            new Date(),
+            new Date(Math.max(...data.filled.legs.map((l) => new Date(l.expiration).getTime()))),
+          ) * 365,
+        ),
+      )
+    : 30;
+
   const main = (
     <div className="flex flex-col gap-3">
       <PayoffChart
@@ -80,8 +115,18 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         breakevens={data.stats.breakevens}
         midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
         oneSigmaBand={data.oneSigmaBand}
+        scrubSpot={scrubSpot}
+        onScrub={setScrubSpot}
+      />
+      <WhatIfBar
+        underlying={data.filled.underlyingPrice}
+        scrubSpot={scrubSpot}
+        onScrub={setScrubSpot}
+        pnlAt={pnlAt}
+        midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
       />
       <TimeSlider value={dayProgress} onChange={setDayProgress} dteAtTarget={data.dteAtTarget} />
+      <StressTest trade={data.filled} maxDaysForward={dteToLastExpiry} />
       {data.kpis.length > 0 && (
         <div className="card card-tight">
           <div className="label mb-2">{data.strategy.label} stats</div>
