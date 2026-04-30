@@ -7,17 +7,24 @@ import { tradeStats, netGreeks, fillImpliedVolsForTrade } from "@/lib/payoff";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const SYSTEM = `You are an options trading copilot. Given an existing options position, propose 3 alternative or adjustment ideas the trader should consider.
+const SYSTEM = `You are an options trading copilot. Be terse: every field is one short sentence or fewer. Given a position, return 3 alternative or adjustment ideas plus any near-term events that could affect the trade.
 
 For each idea:
 - name: short title (e.g. "Convert to call debit spread")
 - bias: "bullish" | "bearish" | "neutral" | "volatility"
-- thesis: 1-sentence why
-- structure: concrete legs (action, type, strike, expiration, qty)
-- tradeoffs: 1 sentence on what's better/worse vs current
-- whenToConsider: 1 sentence on the market view that makes this preferable
+- thesis: 1 short sentence
+- structure: concrete legs (action, type, strike, expiry, qty)
+- tradeoffs: 1 short sentence
+- whenToConsider: 1 short sentence
 
-Return ONLY a JSON array: [{ name, bias, thesis, structure, tradeoffs, whenToConsider }]. No markdown.`;
+Also include an "events" array (max 3) of upcoming catalysts that affect this underlying within the trade horizon: earnings call, ex-div date, FDA decision, FOMC, product event, lockup expiry. Use your knowledge — skip if unsure.
+
+For each event:
+- type: "earnings" | "dividend" | "fomc" | "product" | "regulatory" | "other"
+- date: best estimate ISO date or quarter (e.g. "2026-05-08" or "Q2 2026")
+- note: 1 short sentence on why it matters for this position
+
+Return ONLY JSON: { "ideas": [...], "events": [...] }. No markdown.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,12 +52,12 @@ export async function POST(req: NextRequest) {
 
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
-      max_tokens: 1500,
+      max_tokens: 1100,
       system: SYSTEM,
       messages: [
         {
           role: "user",
-          content: `Current position:\n${JSON.stringify(summary, null, 2)}\n\nReturn JSON array of 3 alternative ideas.`,
+          content: `Position:\n${JSON.stringify(summary)}\n\nReturn JSON.`,
         },
       ],
     });
@@ -60,8 +67,11 @@ export async function POST(req: NextRequest) {
       .map((c) => (c as { text: string }).text)
       .join("\n");
     const cleaned = text.replace(/```json|```/g, "").trim();
-    const ideas = JSON.parse(cleaned);
-    return NextResponse.json({ ideas });
+    const parsed = JSON.parse(cleaned);
+    // Backwards-compat: older responses returned a bare array
+    const ideas = Array.isArray(parsed) ? parsed : parsed.ideas ?? [];
+    const events = Array.isArray(parsed) ? [] : parsed.events ?? [];
+    return NextResponse.json({ ideas, events });
   } catch (err) {
     console.error("[ideas] failed:", err);
     const message = err instanceof Error ? err.message : "ideas failed";

@@ -3,13 +3,13 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
-import { fillImpliedVolsForTrade } from "@/lib/payoff";
+import { fillImpliedVolsForTrade, netGreeks, tradeStats } from "@/lib/payoff";
 import { detectStrategy } from "@/lib/strategies";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
+import { useRegisterChatContext } from "@/lib/chat-context";
 import type { Trade } from "@/types/trade";
 
 export default function TradePage() {
-  const router = useRouter();
   const params = useParams<{ id: string }>();
   const [trade, setTrade] = useState<Trade | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -44,11 +44,48 @@ export default function TradePage() {
 
   if (!trade) return <div className="p-6 text-sm muted">Loading…</div>;
 
+  return <TradeView trade={trade} tradeId={params.id} />;
+}
+
+function TradeView({ trade, tradeId }: { trade: Trade; tradeId: string }) {
+  const router = useRouter();
   const strategy = detectStrategy(trade);
+  const greeks = netGreeks(trade);
+  const stats = tradeStats(trade);
+
+  useRegisterChatContext(`Trade: ${trade.symbol} ${strategy.label}`, {
+    symbol: trade.symbol,
+    underlyingPrice: trade.underlyingPrice,
+    strategy: strategy.label,
+    bias: strategy.bias,
+    legs: trade.legs.map((l) => ({
+      side: l.side,
+      type: l.type,
+      strike: l.strike,
+      expiration: l.expiration,
+      qty: l.quantity,
+      premium: l.premium,
+      iv: l.iv,
+    })),
+    underlying: trade.underlying,
+    netGreeks: {
+      delta: +greeks.delta.toFixed(2),
+      gamma: +greeks.gamma.toFixed(4),
+      theta: +greeks.theta.toFixed(2),
+      vega: +greeks.vega.toFixed(2),
+    },
+    stats: {
+      maxProfit: stats.maxProfit,
+      maxLoss: stats.maxLoss,
+      breakevens: stats.breakevens,
+      cost: stats.cost,
+      pop: stats.pop,
+    },
+  });
 
   async function onDelete() {
     if (!confirm("Delete this trade?")) return;
-    await tradesClient.remove(params.id);
+    await tradesClient.remove(tradeId);
     router.push("/");
   }
 
@@ -79,7 +116,11 @@ export default function TradePage() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-white/[0.02] px-2 py-1.5"
             >
               <div className="flex items-center gap-2">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${l.side === "long" ? "border border-gain/40 gain" : "border border-loss/40 loss"}`}>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                    l.side === "long" ? "border border-gain/40 gain" : "border border-loss/40 loss"
+                  }`}
+                >
                   {l.side === "long" ? "LONG" : "SHORT"}
                 </span>
                 <span className="kpi-xs">
@@ -94,7 +135,8 @@ export default function TradePage() {
           {trade.underlying && (
             <div className="flex items-center justify-between rounded-md border border-border bg-white/[0.02] px-2 py-1.5 text-sm">
               <span className="kpi-xs">
-                <span className="gain">LONG</span> {trade.underlying.shares} shares @ ${trade.underlying.costBasis.toFixed(2)}
+                <span className="gain">LONG</span> {trade.underlying.shares} shares @ $
+                {trade.underlying.costBasis.toFixed(2)}
               </span>
             </div>
           )}

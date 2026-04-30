@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
 import { detectStrategy } from "@/lib/strategies";
+import { SettingsButton } from "./SettingsPanel";
 import type { Trade } from "@/types/trade";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -89,6 +90,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             );
           })}
         </ul>
+      </div>
+
+      <div className="border-t border-border pt-2">
+        <SettingsButton />
       </div>
     </aside>
   );

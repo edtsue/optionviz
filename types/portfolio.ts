@@ -17,6 +17,13 @@ export interface PortfolioSnapshot {
   holdings: Holding[];
 }
 
+export interface UpcomingEvent {
+  ticker?: string | null;
+  type: "earnings" | "dividend" | "fomc" | "product" | "regulatory" | "other";
+  date: string;
+  note: string;
+}
+
 export interface PortfolioAnalysis {
   summary: string;
   concentrationRisk: string;
@@ -24,6 +31,7 @@ export interface PortfolioAnalysis {
   notableObservations: string[];
   recommendations: PortfolioRecommendation[];
   ideas: PortfolioIdea[];
+  events?: UpcomingEvent[];
 }
 
 export interface PortfolioRecommendation {

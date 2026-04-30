@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
 import type { Trade } from "@/types/trade";
+import type { UpcomingEvent } from "@/types/portfolio";
 import { localIdeas, type Idea } from "@/lib/local-ideas";
 
 export function IdeasPanel({ trade }: { trade: Trade }) {
   const [ideas, setIdeas] = useState<Idea[] | null>(null);
+  const [events, setEvents] = useState<UpcomingEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<"local" | "claude" | null>(null);
@@ -30,6 +32,7 @@ export function IdeasPanel({ trade }: { trade: Trade }) {
       }
       const data = await res.json();
       setIdeas(data.ideas);
+      setEvents(data.events ?? []);
       setSource("claude");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -70,6 +73,27 @@ export function IdeasPanel({ trade }: { trade: Trade }) {
         <p className="text-sm text-gray-400">
           Get alternative structures or adjustments. <strong>Quick ideas</strong> uses local rules; <strong>Ask Claude</strong> calls the Anthropic API (needs ANTHROPIC_API_KEY).
         </p>
+      )}
+      {events.length > 0 && (
+        <div className="rounded-lg border border-warn/30 bg-warn/[0.05] p-2">
+          <div className="label mb-1">Upcoming catalysts</div>
+          <ul className="space-y-1 text-xs">
+            {events.map((e, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="mt-0.5 rounded bg-warn/20 px-1.5 py-0.5 text-[10px] uppercase warn">
+                  {e.type}
+                </span>
+                <div>
+                  <div className="font-semibold">
+                    {e.ticker ? `${e.ticker} · ` : ""}
+                    <span className="muted">{e.date}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-300">{e.note}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {ideas && (
         <ul className="space-y-3">

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PortfolioSnapshot, PortfolioAnalysis, Holding } from "@/types/portfolio";
 import { resizeImage } from "@/lib/image";
 import { HoldingDetail } from "@/components/HoldingDetail";
+import { useRegisterChatContext } from "@/lib/chat-context";
 
 interface StagedImage {
   file: File;
@@ -170,6 +171,30 @@ export default function PortfolioPage() {
     snapshot && selectedSymbol
       ? snapshot.holdings.find((h) => h.symbol === selectedSymbol) ?? null
       : null;
+
+  useRegisterChatContext(
+    snapshot
+      ? selectedHolding
+        ? `Portfolio – inspecting ${selectedHolding.symbol}`
+        : "Portfolio overview"
+      : "Portfolio (no snapshot)",
+    snapshot
+      ? {
+          totalValue: total,
+          cashBalance: snapshot.cashBalance,
+          holdings: snapshot.holdings.map((h) => ({
+            symbol: h.symbol,
+            qty: h.quantity,
+            value: h.marketValue,
+            pnl: h.unrealizedPnL,
+            pnlPct: h.unrealizedPnLPct,
+            pctOfPort: total ? Math.round(((h.marketValue ?? 0) / total) * 1000) / 10 : null,
+          })),
+          selected: selectedHolding?.symbol ?? null,
+          analysisLoaded: !!analysis,
+        }
+      : null,
+  );
 
   return (
     <div className="flex h-[calc(100vh-3rem)] flex-col p-4 md:h-screen md:p-6">
@@ -546,6 +571,30 @@ function AnalysisView({ analysis }: { analysis: PortfolioAnalysis }) {
         <div className="label mb-1">Summary</div>
         <p className="text-sm">{analysis.summary}</p>
       </div>
+      {analysis.events && analysis.events.length > 0 && (
+        <div>
+          <div className="label mb-1">Upcoming catalysts</div>
+          <ul className="space-y-1.5">
+            {analysis.events.map((e, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/[0.05] p-2 text-xs"
+              >
+                <span className="mt-0.5 rounded bg-warn/20 px-1.5 py-0.5 text-[10px] uppercase warn">
+                  {e.type}
+                </span>
+                <div className="flex-1">
+                  <div className="font-semibold">
+                    {e.ticker ? `${e.ticker} · ` : ""}
+                    <span className="muted">{e.date}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-300">{e.note}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="grid gap-2 sm:grid-cols-2">
         <Block title="Concentration risk" body={analysis.concentrationRisk} />
         <Block title="Diversification" body={analysis.diversification} />
