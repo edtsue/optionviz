@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { TicketUpload } from "@/components/TicketUpload";
 import { TradeForm } from "@/components/TradeForm";
+import { tradesClient } from "@/lib/trades-client";
 import type { Trade } from "@/types/trade";
 
 const empty: Trade = {
@@ -29,16 +30,7 @@ export default function NewTradePage() {
   const [version, setVersion] = useState(0);
 
   async function save(t: Trade) {
-    const res = await fetch("/api/trades", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(t),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error(j.error ?? `Save failed (${res.status})`);
-    }
-    const { id } = await res.json();
+    const id = await tradesClient.create(t);
     router.push(`/trade/${id}`);
   }
 

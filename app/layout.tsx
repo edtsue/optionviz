@@ -22,11 +22,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="text-lg font-semibold tracking-tight">
               OptionViz
             </Link>
-            <nav className="flex gap-2 text-sm">
-              <Link href="/" className="text-gray-400 hover:text-white">
-                Trades
+            <nav className="flex items-center gap-4 text-sm">
+              <Link href="/" className="text-gray-300 hover:text-white">
+                Options
               </Link>
-              <Link href="/trade/new" className="btn-primary inline-flex items-center rounded-lg px-3 py-1.5">
+              <Link href="/portfolio" className="text-gray-300 hover:text-white">
+                Portfolio
+              </Link>
+              <Link
+                href="/trade/new"
+                className="btn-primary inline-flex items-center rounded-lg px-3 py-1.5 leading-none"
+              >
                 + New
               </Link>
             </nav>
