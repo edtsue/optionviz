@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav className="flex items-center gap-4 text-sm">
               <Link href="/" className="text-gray-300 hover:text-white">
-                Options
+                Trade
               </Link>
               <Link href="/portfolio" className="text-gray-300 hover:text-white">
                 Portfolio
