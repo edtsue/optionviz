@@ -53,12 +53,11 @@ export function ChatLauncher() {
 
   return (
     <>
-      {/* Floating launcher — positioned past the sidebar on desktop so it doesn't
-          overlap the Settings button at the bottom of the sidebar. */}
+      {/* Floating launcher — bottom-right corner */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Chat with Claude"
-        className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border shadow-xl transition hover:scale-105 md:left-[16rem]"
+        className="fixed bottom-4 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border shadow-xl transition hover:scale-105"
         style={{
           background: "#f5f1ea",
           color: "#d97757",
@@ -69,9 +68,9 @@ export function ChatLauncher() {
         <ClaudeMark size={22} />
       </button>
 
-      {/* Chat panel — same horizontal alignment as launcher on desktop */}
+      {/* Chat panel — anchored bottom-right next to launcher on desktop */}
       {open && (
-        <div className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:bottom-4 md:left-[16rem] md:right-auto md:max-h-[70vh] md:w-[400px] md:rounded-2xl">
+        <div className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:bottom-20 md:left-auto md:right-4 md:max-h-[70vh] md:w-[400px] md:rounded-2xl">
           <div className="card card-flush flex h-[70vh] flex-col overflow-hidden md:h-[600px]">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <div className="flex items-center gap-2">
