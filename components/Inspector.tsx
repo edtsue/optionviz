@@ -8,6 +8,7 @@ interface Props {
   greeks: NetGreeks;
   stats: TradeStats;
   trade: Trade;
+  asOfLabel?: string;
 }
 
 function fmtUsd(v: number | "unlimited"): string {
@@ -23,11 +24,12 @@ function tone(v: number | "unlimited"): "gain" | "loss" | "" {
   return "";
 }
 
-export function Inspector({ greeks, stats, trade }: Props) {
+export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
   const [showMore, setShowMore] = useState(false);
 
   const ivs = trade.legs.map((l) => l.iv ?? null).filter((v): v is number => v != null);
   const avgIV = ivs.length ? ivs.reduce((a, b) => a + b, 0) / ivs.length : null;
+  const asOf = asOfLabel && asOfLabel !== "Today" ? asOfLabel : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -48,24 +50,34 @@ export function Inspector({ greeks, stats, trade }: Props) {
           <Cell label="PoP" value={stats.pop != null ? `${(stats.pop * 100).toFixed(0)}%` : "—"} t={stats.pop != null && stats.pop > 0.5 ? "gain" : ""} />
         </div>
 
-        <div className="grid grid-cols-3 gap-2 border-t border-border pt-3 data-grid">
-          <Cell
-            label="Delta"
-            value={`${greeks.delta >= 0 ? "+" : "−"}$${Math.abs(greeks.delta).toFixed(0)}`}
-            t={greeks.delta > 0 ? "gain" : greeks.delta < 0 ? "loss" : ""}
-            title="$ change per $1 move in underlying"
-          />
-          <Cell
-            label="Implied Vol"
-            value={avgIV != null ? `${(avgIV * 100).toFixed(0)}%` : "—"}
-            title="Average implied volatility across legs"
-          />
-          <Cell
-            label="Theta"
-            value={`${greeks.theta >= 0 ? "+" : "−"}$${Math.abs(greeks.theta).toFixed(0)}/d`}
-            t={greeks.theta > 0 ? "gain" : greeks.theta < 0 ? "loss" : ""}
-            title="$ change per day from time decay"
-          />
+        <div className="border-t border-border pt-3">
+          <div className="mb-1 flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-wider muted">Greeks</span>
+            {asOf && (
+              <span className="text-[10px] warn" title="Slider has moved time forward">
+                as of {asOf}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2 data-grid">
+            <Cell
+              label="Delta"
+              value={`${greeks.delta >= 0 ? "+" : "−"}$${Math.abs(greeks.delta).toFixed(0)}`}
+              t={greeks.delta > 0 ? "gain" : greeks.delta < 0 ? "loss" : ""}
+              title="$ change per $1 move in underlying"
+            />
+            <Cell
+              label="Implied Vol"
+              value={avgIV != null ? `${(avgIV * 100).toFixed(0)}%` : "—"}
+              title="Average implied volatility across legs"
+            />
+            <Cell
+              label="Theta"
+              value={`${greeks.theta >= 0 ? "+" : "−"}$${Math.abs(greeks.theta).toFixed(0)}/d`}
+              t={greeks.theta > 0 ? "gain" : greeks.theta < 0 ? "loss" : ""}
+              title="$ change per day from time decay"
+            />
+          </div>
         </div>
 
         <button

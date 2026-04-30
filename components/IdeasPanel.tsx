@@ -4,6 +4,22 @@ import type { Trade } from "@/types/trade";
 import type { UpcomingEvent } from "@/types/portfolio";
 import { localIdeas, type Idea } from "@/lib/local-ideas";
 
+function relativeToExpiry(eventDate: string, trade: Trade): string | null {
+  const ed = new Date(eventDate);
+  if (Number.isNaN(ed.getTime())) return null;
+  const lastExpiry = trade.legs.length
+    ? new Date(Math.max(...trade.legs.map((l) => new Date(l.expiration).getTime())))
+    : null;
+  if (!lastExpiry || Number.isNaN(lastExpiry.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dteEvent = Math.round((ed.getTime() - today.getTime()) / 86_400_000);
+  const dteExp = Math.round((lastExpiry.getTime() - today.getTime()) / 86_400_000);
+  if (dteEvent < 0) return "passed";
+  if (dteEvent > dteExp) return `${dteEvent - dteExp}d after expiry`;
+  return `${dteExp - dteEvent}d before expiry`;
+}
+
 type Source = "local" | "claude" | "news";
 
 export function IdeasPanel({ trade }: { trade: Trade }) {
@@ -124,20 +140,26 @@ export function IdeasPanel({ trade }: { trade: Trade }) {
           {openSource === "news" && <div className="label mb-1">Upcoming events</div>}
           {openSource === "claude" && <div className="label mb-1">Upcoming catalysts</div>}
           <ul className="space-y-1.5 text-xs">
-            {visibleEvents.map((e, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="mt-0.5 shrink-0">•</span>
-                <div className="flex-1">
-                  <span className="font-semibold">
-                    {e.type.toUpperCase()}
-                    {e.date && (
-                      <span className="muted font-normal"> · {e.date}</span>
-                    )}
-                  </span>
-                  <span className="text-gray-300"> — {e.note}</span>
-                </div>
-              </li>
-            ))}
+            {visibleEvents.map((e, i) => {
+              const rel = e.date ? relativeToExpiry(e.date, trade) : null;
+              return (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0">•</span>
+                  <div className="flex-1">
+                    <span className="font-semibold">
+                      {e.type.toUpperCase()}
+                      {e.date && (
+                        <span className="muted font-normal"> · {e.date}</span>
+                      )}
+                      {rel && (
+                        <span className="muted font-normal"> · {rel}</span>
+                      )}
+                    </span>
+                    <span className="text-gray-300"> — {e.note}</span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

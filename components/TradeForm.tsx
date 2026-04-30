@@ -238,9 +238,9 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
         </button>
       </div>
 
-      <details className="card group">
+      <details className="card group" open={!!trade.notes?.trim()}>
         <summary className="cursor-pointer text-[11px] muted hover:text-text">
-          Notes ▸
+          Notes {trade.notes?.trim() ? "▾" : "▸"}
         </summary>
         <div className="mt-3">
           <textarea

@@ -78,6 +78,16 @@ export async function getTrade(id: string): Promise<Trade | null> {
   return rowsToTrade(trade as TradeRow, (legs ?? []) as LegRow[]);
 }
 
+function pgErr(err: unknown, fallback: string): Error {
+  if (err instanceof Error) return err;
+  if (err && typeof err === "object") {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string };
+    const parts = [e.message, e.details, e.hint, e.code ? `(${e.code})` : null].filter(Boolean);
+    return new Error(parts.length ? parts.join(" — ") : fallback);
+  }
+  return new Error(fallback);
+}
+
 export async function createTrade(trade: Trade): Promise<string> {
   const sb = supabaseServer();
   const { data, error } = await sb
@@ -93,7 +103,10 @@ export async function createTrade(trade: Trade): Promise<string> {
     })
     .select("id")
     .single();
-  if (error || !data) throw error ?? new Error("insert failed");
+  if (error || !data) {
+    console.error("trades.insert failed:", error);
+    throw pgErr(error, "Insert into trades failed");
+  }
   const tradeId = data.id as string;
   if (trade.legs.length) {
     const { error: e2 } = await sb.from("legs").insert(
@@ -109,7 +122,12 @@ export async function createTrade(trade: Trade): Promise<string> {
         position: i,
       })),
     );
-    if (e2) throw e2;
+    if (e2) {
+      console.error("legs.insert failed:", e2);
+      // Roll back the parent row to avoid orphans
+      await sb.from("trades").delete().eq("id", tradeId);
+      throw pgErr(e2, "Insert into legs failed");
+    }
   }
   return tradeId;
 }
@@ -117,5 +135,8 @@ export async function createTrade(trade: Trade): Promise<string> {
 export async function deleteTrade(id: string): Promise<void> {
   const sb = supabaseServer();
   const { error } = await sb.from("trades").delete().eq("id", id);
-  if (error) throw error;
+  if (error) {
+    console.error("trades.delete failed:", error);
+    throw pgErr(error, "Delete failed");
+  }
 }

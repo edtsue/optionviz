@@ -48,12 +48,10 @@ export function PayoffChart({
     <div className="card">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
         <div className="label">Payoff (P/L vs underlying)</div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px]">
+        <div className="flex flex-wrap items-center gap-3 text-[11px] muted">
           <Legend dot="#6b7280" label="Today" />
           <Legend dot="#a78bfa" label={midLabel} />
           <Legend dot="#e5e7eb" label="Expiry" />
-          <Legend dot="rgb(var(--accent-rgb))" label="Spot" />
-          <Legend dot="#f59e0b" label="Breakeven" />
         </div>
       </div>
       <div className="h-80 w-full sm:h-[28rem]">

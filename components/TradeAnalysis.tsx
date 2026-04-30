@@ -100,6 +100,22 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         scrubSpot={scrubSpot}
         onScrub={setScrubSpot}
       />
+      {data.kpis.length > 0 && (
+        <div className="card card-tight">
+          <div className="label mb-2">{data.strategy.label}</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 data-grid">
+            {data.kpis.map((k) => (
+              <div key={k.label} className="flex min-w-0 flex-col">
+                <span className="text-[10px] muted">{k.label}</span>
+                <span className="kpi-sm truncate" title={k.value}>
+                  {k.value}
+                </span>
+                {k.hint && <span className="text-[10px] muted truncate" title={k.hint}>{k.hint}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <TimeSlider
         value={dayProgress}
         onChange={setDayProgress}
@@ -125,7 +141,12 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
   );
 
   const right = (
-    <Inspector greeks={data.greeksAtTarget} stats={data.stats} trade={data.filled} />
+    <Inspector
+      greeks={data.greeksAtTarget}
+      stats={data.stats}
+      trade={data.filled}
+      asOfLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
+    />
   );
 
   if (!sideBySide) {

@@ -20,7 +20,13 @@ export async function POST(req: NextRequest) {
     const id = await createTrade(trade);
     return NextResponse.json({ id });
   } catch (err) {
-    const m = err instanceof Error ? err.message : "create failed";
+    console.error("[api/trades] create failed:", err);
+    const m =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" && err && "message" in err
+          ? String((err as { message: unknown }).message)
+          : "create failed";
     return NextResponse.json({ error: m }, { status: 500 });
   }
 }
