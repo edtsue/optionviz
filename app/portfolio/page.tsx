@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PortfolioSnapshot, PortfolioAnalysis, Holding } from "@/types/portfolio";
 import { resizeImage } from "@/lib/image";
 import { HoldingDetail } from "@/components/HoldingDetail";
+import { ResizableSplit } from "@/components/ResizableSplit";
 import { useRegisterChatContext } from "@/lib/chat-context";
 
 interface StagedImage {
@@ -277,17 +278,19 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* When we have a snapshot: 2 or 3 column horizontal layout */}
+      {/* When we have a snapshot: resizable horizontal layout */}
       {snapshot && (
-        <div
-          className={`grid min-h-0 flex-1 gap-4 ${
-            paneOpen
-              ? "lg:grid-cols-[220px_minmax(0,1fr)_360px]"
-              : "lg:grid-cols-[220px_minmax(0,1fr)]"
-          }`}
+        <ResizableSplit
+          id="portfolio-stats"
+          fixedSide="start"
+          defaultPx={220}
+          minPx={160}
+          maxPx={360}
+          breakpoint="lg"
+          className="min-h-0 flex-1"
         >
           {/* Column 1: stats + reupload */}
-          <div className="flex flex-col gap-3 overflow-y-auto">
+          <div className="flex h-full flex-col gap-3 overflow-y-auto pr-2">
             <div className="card card-tight space-y-2">
               <Stat label="Total value" value={`$${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
               <Stat label="Cash" value={snapshot.cashBalance != null ? `$${snapshot.cashBalance.toLocaleString()}` : "—"} />
@@ -324,59 +327,29 @@ export default function PortfolioPage() {
             {error && <div className="text-sm loss">{error}</div>}
           </div>
 
-          {/* Column 2: holdings list */}
-          <div className="card card-flush flex min-h-0 flex-col overflow-hidden">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2">
-              <div className="label">Holdings</div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] muted">click to inspect →</span>
-                {!paneOpen && (
-                  <button
-                    onClick={() => setPaneOpen(true)}
-                    className="rounded-md border border-border px-2 py-0.5 text-[11px] hover:border-accent/50"
-                  >
-                    Show pane ‹
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="scroll-soft flex-1 overflow-y-auto">
-              <table className="w-full text-sm data-grid">
-                <thead className="sticky top-0 bg-bg/90 text-[10px] uppercase tracking-wider muted backdrop-blur">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Symbol</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
-                    <th className="px-3 py-2 text-right">Price</th>
-                    <th className="px-3 py-2 text-right">Cost</th>
-                    <th className="px-3 py-2 text-right">Value</th>
-                    <th className="px-3 py-2 text-right">P/L</th>
-                    <th className="px-3 py-2 text-right">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.holdings
-                    .slice()
-                    .sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0))
-                    .map((h) => (
-                      <HoldingRow
-                        key={h.symbol}
-                        h={h}
-                        total={total}
-                        active={h.symbol === selectedSymbol}
-                        onClick={() => {
-                          setSelectedSymbol((cur) => (cur === h.symbol ? null : h.symbol));
-                          setPaneOpen(true);
-                        }}
-                      />
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Column 3: detail or analysis (collapsible) */}
-          {paneOpen && (
-          <div className="card card-flush flex min-h-0 flex-col overflow-hidden">
+          {/* Right side: holdings | detail (resizable when paneOpen) */}
+          {paneOpen ? (
+            <ResizableSplit
+              id="portfolio-detail"
+              fixedSide="end"
+              defaultPx={380}
+              minPx={300}
+              maxPx={640}
+              breakpoint="lg"
+              className="h-full min-h-0"
+            >
+              <HoldingsTable
+                holdings={snapshot.holdings}
+                total={total}
+                selectedSymbol={selectedSymbol}
+                onSelect={(s) => {
+                  setSelectedSymbol(s);
+                  setPaneOpen(true);
+                }}
+                paneOpen={paneOpen}
+                onShowPane={() => setPaneOpen(true)}
+              />
+              <div className="card card-flush flex h-full min-h-0 flex-col overflow-hidden">
             {selectedHolding ? (
               <>
                 <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
@@ -454,10 +427,87 @@ export default function PortfolioPage() {
                 </div>
               </>
             )}
-          </div>
+              </div>
+            </ResizableSplit>
+          ) : (
+            <HoldingsTable
+              holdings={snapshot.holdings}
+              total={total}
+              selectedSymbol={selectedSymbol}
+              onSelect={(s) => {
+                setSelectedSymbol(s);
+                setPaneOpen(true);
+              }}
+              paneOpen={paneOpen}
+              onShowPane={() => setPaneOpen(true)}
+            />
+          )}
+        </ResizableSplit>
+      )}
+    </div>
+  );
+}
+
+function HoldingsTable({
+  holdings,
+  total,
+  selectedSymbol,
+  onSelect,
+  paneOpen,
+  onShowPane,
+}: {
+  holdings: Holding[];
+  total: number;
+  selectedSymbol: string | null;
+  onSelect: (s: string | null) => void;
+  paneOpen: boolean;
+  onShowPane: () => void;
+}) {
+  return (
+    <div className="card card-flush flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="label">Holdings</div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] muted">click to inspect →</span>
+          {!paneOpen && (
+            <button
+              onClick={onShowPane}
+              className="rounded-md border border-border px-2 py-0.5 text-[11px] hover:border-accent/50"
+            >
+              Show pane ‹
+            </button>
           )}
         </div>
-      )}
+      </div>
+      <div className="scroll-soft flex-1 overflow-y-auto">
+        <table className="w-full text-sm data-grid">
+          <thead className="sticky top-0 bg-bg/90 text-[10px] uppercase tracking-wider muted backdrop-blur">
+            <tr>
+              <th className="px-3 py-2 text-left">Symbol</th>
+              <th className="px-3 py-2 text-right">Qty</th>
+              <th className="px-3 py-2 text-right">Price</th>
+              <th className="px-3 py-2 text-right">Cost</th>
+              <th className="px-3 py-2 text-right">Value</th>
+              <th className="px-3 py-2 text-right">P/L</th>
+              <th className="px-3 py-2 text-right">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {holdings
+              .slice()
+              .sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0))
+              .map((h) => (
+                <HoldingRow
+                  key={h.symbol}
+                  h={h}
+                  total={total}
+                  active={h.symbol === selectedSymbol}
+                  onClick={() => onSelect(h.symbol === selectedSymbol ? null : h.symbol)}
+                />
+              ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

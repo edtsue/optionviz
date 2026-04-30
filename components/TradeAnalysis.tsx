@@ -17,6 +17,7 @@ import { TimeSlider } from "@/components/TimeSlider";
 import { Inspector } from "@/components/Inspector";
 import { WhatIfBar } from "@/components/WhatIfBar";
 import { StressTest } from "@/components/StressTest";
+import { ResizableSplit } from "@/components/ResizableSplit";
 
 export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
   const [dayProgress, setDayProgress] = useState(0);
@@ -163,10 +164,17 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="min-w-0">{main}</div>
-      <div>{right}</div>
-    </div>
+    <ResizableSplit
+      id="trade-chart-inspector"
+      fixedSide="end"
+      defaultPx={340}
+      minPx={260}
+      maxPx={520}
+      breakpoint="xl"
+    >
+      {main}
+      {right}
+    </ResizableSplit>
   );
 }
 

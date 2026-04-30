@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { TicketUpload } from "@/components/TicketUpload";
 import { TradeForm } from "@/components/TradeForm";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
+import { ResizableSplit } from "@/components/ResizableSplit";
 import { tradesClient } from "@/lib/trades-client";
 import type { Leg, Trade } from "@/types/trade";
 
@@ -148,27 +149,36 @@ function NewTradeInner() {
   }
 
   return (
-    <div className="grid gap-4 p-4 md:p-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-      <section className="min-w-0 overflow-hidden space-y-3">
-        <div className="label">Capture</div>
-        <TicketUpload
-          onParsed={(p) => {
-            setTrade((current) => ({
-              ...current,
-              symbol: p.symbol || current.symbol,
-              underlyingPrice: p.underlyingPrice || current.underlyingPrice,
-              legs: p.legs.length ? p.legs : current.legs,
-              notes: p.notes ?? current.notes,
-            }));
-          }}
-        />
-        <div className="label">Trade</div>
-        <TradeForm trade={trade} onChange={setTrade} onSave={save} />
-      </section>
+    <div className="p-4 md:p-6">
+      <ResizableSplit
+        id="new-trade-form-analysis"
+        fixedSide="start"
+        defaultPx={420}
+        minPx={320}
+        maxPx={680}
+        breakpoint="xl"
+      >
+        <section className="min-w-0 overflow-hidden space-y-3 pr-3">
+          <div className="label">Capture</div>
+          <TicketUpload
+            onParsed={(p) => {
+              setTrade((current) => ({
+                ...current,
+                symbol: p.symbol || current.symbol,
+                underlyingPrice: p.underlyingPrice || current.underlyingPrice,
+                legs: p.legs.length ? p.legs : current.legs,
+                notes: p.notes ?? current.notes,
+              }));
+            }}
+          />
+          <div className="label">Trade</div>
+          <TradeForm trade={trade} onChange={setTrade} onSave={save} />
+        </section>
 
-      <section className="min-w-0">
-        <TradeAnalysis trade={trade} />
-      </section>
+        <section className="min-w-0 pl-3">
+          <TradeAnalysis trade={trade} />
+        </section>
+      </ResizableSplit>
     </div>
   );
 }
