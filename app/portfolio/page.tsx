@@ -1,6 +1,17 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { PortfolioSnapshot, PortfolioAnalysis } from "@/types/portfolio";
+import { resizeImage } from "@/lib/image";
+
+interface StagedImage {
+  file: File;
+  dataUrl: string;
+  mediaType: string;
+  resizedBytes: number;
+  originalBytes: number;
+  width: number;
+  height: number;
+}
 
 const KEY = "optionviz.portfolio.v1";
 
@@ -11,8 +22,7 @@ export default function PortfolioPage() {
   const [busyAnalyze, setBusyAnalyze] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [stagedFile, setStagedFile] = useState<File | null>(null);
+  const [staged, setStaged] = useState<StagedImage | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -38,21 +48,32 @@ export default function PortfolioPage() {
       return;
     }
     setError(null);
-    const dataUrl = await fileToDataURL(file);
-    setPreview(dataUrl);
-    setStagedFile(file);
+    try {
+      const r = await resizeImage(file);
+      setStaged({
+        file,
+        dataUrl: r.dataUrl,
+        mediaType: r.mediaType,
+        resizedBytes: r.resizedBytes,
+        originalBytes: r.originalBytes,
+        width: r.width,
+        height: r.height,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? `Image processing failed: ${e.message}` : "Image processing failed");
+    }
   }
 
   async function uploadStaged() {
-    if (!stagedFile || !preview) return;
+    if (!staged) return;
     setBusyParse(true);
     setError(null);
     try {
-      const base64 = preview.split(",")[1];
+      const base64 = staged.dataUrl.split(",")[1];
       const res = await fetch("/api/parse-portfolio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: stagedFile.type }),
+        body: JSON.stringify({ imageBase64: base64, mediaType: staged.mediaType }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -61,7 +82,7 @@ export default function PortfolioPage() {
       const parsed = (await res.json()) as PortfolioSnapshot;
       setSnapshot(parsed);
       setAnalysis(null);
-      setStagedFile(null);
+      setStaged(null);
       persist(parsed, null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse");
@@ -112,7 +133,7 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Enter" || !stagedFile || busyParse) return;
+      if (e.key !== "Enter" || !staged || busyParse) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       e.preventDefault();
@@ -121,19 +142,17 @@ export default function PortfolioPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stagedFile, busyParse]);
+  }, [staged, busyParse]);
 
   function clear() {
     setSnapshot(null);
     setAnalysis(null);
-    setPreview(null);
-    setStagedFile(null);
+    setStaged(null);
     persist(null, null);
   }
 
   function cancelStaged() {
-    setStagedFile(null);
-    setPreview(null);
+    setStaged(null);
     setError(null);
   }
 
@@ -154,7 +173,7 @@ export default function PortfolioPage() {
           <div className="text-xs text-gray-500">Drop · Paste · Click</div>
         </div>
 
-        {!stagedFile && !snapshot && (
+        {!staged && !snapshot && (
           <div
             role="button"
             tabIndex={0}
@@ -191,13 +210,20 @@ export default function PortfolioPage() {
           className="hidden"
         />
 
-        {stagedFile && preview && (
+        {staged && (
           <div className="space-y-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview} alt="Staged" className="max-h-72 rounded-lg border border-border" />
+            <img src={staged.dataUrl} alt="Staged" className="max-h-72 rounded-lg border border-border" />
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
               <span>
-                {stagedFile.name || "pasted image"} · {(stagedFile.size / 1024).toFixed(0)} KB
+                {staged.file.name || "pasted image"} · resized to {staged.width}×{staged.height} ·{" "}
+                {(staged.resizedBytes / 1024).toFixed(0)} KB
+                {staged.originalBytes !== staged.resizedBytes && (
+                  <span className="text-gray-500">
+                    {" "}
+                    (from {(staged.originalBytes / 1024).toFixed(0)} KB)
+                  </span>
+                )}
               </span>
               <span className="text-gray-500">Press Enter to upload</span>
             </div>
@@ -378,11 +404,3 @@ function Block({ title, body }: { title: string; body: string }) {
   );
 }
 
-function fileToDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { resizeImage } from "@/lib/image";
 
 interface ParsedTicket {
   symbol: string;
@@ -18,6 +19,11 @@ interface ParsedTicket {
 interface Staged {
   file: File;
   dataUrl: string;
+  mediaType: string;
+  resizedBytes: number;
+  originalBytes: number;
+  width: number;
+  height: number;
 }
 
 export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void }) {
@@ -33,8 +39,20 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
       return;
     }
     setError(null);
-    const dataUrl = await fileToDataURL(file);
-    setStaged({ file, dataUrl });
+    try {
+      const resized = await resizeImage(file);
+      setStaged({
+        file,
+        dataUrl: resized.dataUrl,
+        mediaType: resized.mediaType,
+        resizedBytes: resized.resizedBytes,
+        originalBytes: resized.originalBytes,
+        width: resized.width,
+        height: resized.height,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? `Image processing failed: ${e.message}` : "Image processing failed");
+    }
   }
 
   async function upload() {
@@ -46,7 +64,7 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
       const res = await fetch("/api/parse-ticket", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: staged.file.type }),
+        body: JSON.stringify({ imageBase64: base64, mediaType: staged.mediaType }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -147,7 +165,11 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
           <img src={staged.dataUrl} alt="Staged" className="max-h-72 rounded-lg border border-border" />
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
             <span>
-              {staged.file.name || "pasted image"} · {(staged.file.size / 1024).toFixed(0)} KB
+              {staged.file.name || "pasted image"} · resized to {staged.width}×{staged.height} ·{" "}
+              {(staged.resizedBytes / 1024).toFixed(0)} KB
+              {staged.originalBytes !== staged.resizedBytes && (
+                <span className="text-gray-500"> (from {(staged.originalBytes / 1024).toFixed(0)} KB)</span>
+              )}
             </span>
             <span className="text-gray-500">Press Enter to upload</span>
           </div>
