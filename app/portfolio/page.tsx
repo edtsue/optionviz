@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { PortfolioSnapshot, PortfolioAnalysis } from "@/types/portfolio";
+import type { PortfolioSnapshot, PortfolioAnalysis, Holding } from "@/types/portfolio";
 import { resizeImage } from "@/lib/image";
 import { HoldingDetail } from "@/components/HoldingDetail";
 
@@ -24,6 +24,7 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState(false);
   const [staged, setStaged] = useState<StagedImage | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -84,6 +85,7 @@ export default function PortfolioPage() {
       setSnapshot(parsed);
       setAnalysis(null);
       setStaged(null);
+      setSelectedSymbol(null);
       persist(parsed, null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse");
@@ -149,6 +151,7 @@ export default function PortfolioPage() {
     setSnapshot(null);
     setAnalysis(null);
     setStaged(null);
+    setSelectedSymbol(null);
     persist(null, null);
   }
 
@@ -157,204 +160,322 @@ export default function PortfolioPage() {
     setError(null);
   }
 
+  const total =
+    snapshot?.totalValue ??
+    snapshot?.holdings.reduce((acc, h) => acc + (h.marketValue ?? 0), 0) ??
+    0;
+
+  const selectedHolding =
+    snapshot && selectedSymbol
+      ? snapshot.holdings.find((h) => h.symbol === selectedSymbol) ?? null
+      : null;
+
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-      <div className="flex items-baseline justify-between">
+    <div className="flex h-[calc(100vh-3rem)] flex-col p-4 md:h-screen md:p-6">
+      <header className="mb-4 flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Portfolio</h1>
           <p className="text-xs muted">Account-wide analysis · concentration · ideas</p>
         </div>
-        {snapshot && (
-          <button onClick={clear} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
-            Clear
-          </button>
-        )}
-      </div>
-
-      <div className="card space-y-3">
-        <div className="flex items-baseline justify-between">
-          <div className="label">Upload portfolio screenshot</div>
-          <div className="text-xs text-gray-500">Drop · Paste · Click</div>
-        </div>
-
-        {!staged && !snapshot && (
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => inputRef.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setHover(true);
-            }}
-            onDragLeave={() => setHover(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setHover(false);
-              const f = e.dataTransfer.files[0];
-              if (f) stage(f);
-            }}
-            className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition ${
-              hover ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
-            }`}
-          >
-            <div className="text-sm font-medium">
-              {hover ? "Drop to stage" : "Drag a portfolio screenshot here"}
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              or paste (⌘V) · or click to choose a file
-            </div>
-          </div>
-        )}
-
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          onChange={(e) => e.target.files?.[0] && stage(e.target.files[0])}
-          className="hidden"
-        />
-
-        {staged && (
-          <div className="space-y-3">
-            <div className="relative inline-block">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={staged.dataUrl} alt="Staged" className="max-h-72 rounded-lg border border-border" />
-              <button
-                type="button"
-                onClick={cancelStaged}
-                disabled={busyParse}
-                aria-label="Remove screenshot"
-                className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg text-sm text-gray-300 shadow hover:border-loss hover:text-loss"
-              >
-                ×
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
-              <span>
-                {staged.file.name || "pasted image"} · resized to {staged.width}×{staged.height} ·{" "}
-                {(staged.resizedBytes / 1024).toFixed(0)} KB
-                {staged.originalBytes !== staged.resizedBytes && (
-                  <span className="text-gray-500">
-                    {" "}
-                    (from {(staged.originalBytes / 1024).toFixed(0)} KB)
-                  </span>
-                )}
-              </span>
-              <span className="text-gray-500">Press Enter to upload</span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={uploadStaged}
-                disabled={busyParse}
-                className="btn-primary flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold"
-              >
-                {busyParse ? "Parsing with Claude…" : "Upload & parse"}
-              </button>
-              <button onClick={cancelStaged} disabled={busyParse} className="rounded-lg px-4 py-2.5 text-sm">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error && <div className="text-sm text-loss">{error}</div>}
-      </div>
-
-      {snapshot && (
-        <>
-          <PortfolioOverview snapshot={snapshot} />
-
-          <div className="flex items-center justify-between">
-            <div className="label">Analysis & ideas</div>
-            <button onClick={analyze} disabled={busyAnalyze} className="btn-primary rounded-lg px-3 py-1.5 text-sm">
+        <div className="flex items-center gap-2">
+          {snapshot && (
+            <button
+              onClick={analyze}
+              disabled={busyAnalyze}
+              className="btn-primary rounded-lg px-3 py-1.5 text-sm"
+            >
               {busyAnalyze ? "Analyzing…" : analysis ? "Re-analyze" : "Analyze with Claude"}
             </button>
+          )}
+          {snapshot && (
+            <button onClick={clear} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
+              Clear
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* When no snapshot: show big upload zone */}
+      {!snapshot && (
+        <div className="card space-y-3">
+          <div className="flex items-baseline justify-between">
+            <div className="label">Upload portfolio screenshot</div>
+            <div className="text-xs muted">Drop · Paste · Click</div>
           </div>
 
-          {analysis && <AnalysisView analysis={analysis} />}
-        </>
+          {!staged && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => inputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setHover(true);
+              }}
+              onDragLeave={() => setHover(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setHover(false);
+                const f = e.dataTransfer.files[0];
+                if (f) stage(f);
+              }}
+              className={`flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition ${
+                hover ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
+              }`}
+            >
+              <div className="text-sm font-medium">
+                {hover ? "Drop to stage" : "Drag a portfolio screenshot here"}
+              </div>
+              <div className="mt-1 text-xs muted">or paste (⌘V) · or click to choose a file</div>
+            </div>
+          )}
+
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) => e.target.files?.[0] && stage(e.target.files[0])}
+            className="hidden"
+          />
+
+          {staged && (
+            <StagedPanel
+              staged={staged}
+              busy={busyParse}
+              onUpload={uploadStaged}
+              onCancel={cancelStaged}
+            />
+          )}
+
+          {error && <div className="text-sm loss">{error}</div>}
+        </div>
+      )}
+
+      {/* When we have a snapshot: 3-column horizontal layout */}
+      {snapshot && (
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_minmax(0,1.4fr)]">
+          {/* Column 1: stats + reupload */}
+          <div className="flex flex-col gap-3 overflow-y-auto">
+            <div className="card card-tight space-y-2">
+              <Stat label="Total value" value={`$${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+              <Stat label="Cash" value={snapshot.cashBalance != null ? `$${snapshot.cashBalance.toLocaleString()}` : "—"} />
+              <Stat label="Holdings" value={`${snapshot.holdings.length}`} />
+              <Stat label="As of" value={snapshot.asOf ?? "—"} />
+            </div>
+
+            <div className="card card-tight">
+              <div className="label mb-2">Replace</div>
+              {!staged ? (
+                <button
+                  onClick={() => inputRef.current?.click()}
+                  className="btn-ghost w-full rounded-lg px-3 py-2 text-sm"
+                >
+                  Upload new screenshot
+                </button>
+              ) : (
+                <StagedPanel
+                  staged={staged}
+                  busy={busyParse}
+                  onUpload={uploadStaged}
+                  onCancel={cancelStaged}
+                  compact
+                />
+              )}
+              <input
+                ref={inputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => e.target.files?.[0] && stage(e.target.files[0])}
+                className="hidden"
+              />
+            </div>
+            {error && <div className="text-sm loss">{error}</div>}
+          </div>
+
+          {/* Column 2: holdings list */}
+          <div className="card card-flush flex min-h-0 flex-col overflow-hidden">
+            <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
+              <div className="label">Holdings</div>
+              <div className="text-[10px] muted">click to inspect →</div>
+            </div>
+            <div className="scroll-soft flex-1 overflow-y-auto">
+              <table className="w-full text-sm data-grid">
+                <thead className="sticky top-0 bg-bg/90 text-[10px] uppercase tracking-wider muted backdrop-blur">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Symbol</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-right">Value</th>
+                    <th className="px-3 py-2 text-right">P/L</th>
+                    <th className="px-3 py-2 text-right">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshot.holdings
+                    .slice()
+                    .sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0))
+                    .map((h) => (
+                      <HoldingRow
+                        key={h.symbol}
+                        h={h}
+                        total={total}
+                        active={h.symbol === selectedSymbol}
+                        onClick={() =>
+                          setSelectedSymbol((cur) => (cur === h.symbol ? null : h.symbol))
+                        }
+                      />
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Column 3: detail or analysis */}
+          <div className="card card-flush flex min-h-0 flex-col overflow-hidden">
+            {selectedHolding ? (
+              <>
+                <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
+                  <div>
+                    <div className="text-base font-semibold">{selectedHolding.symbol}</div>
+                    {selectedHolding.name && (
+                      <div className="text-[11px] muted">{selectedHolding.name}</div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setSelectedSymbol(null)}
+                    className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent/50"
+                    aria-label="Close detail"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="scroll-soft flex-1 overflow-y-auto">
+                  <HoldingDetail holding={selectedHolding} totalPortfolioValue={total} />
+                </div>
+              </>
+            ) : analysis ? (
+              <>
+                <div className="border-b border-border px-3 py-2">
+                  <div className="label">Analysis & ideas</div>
+                </div>
+                <div className="scroll-soft flex-1 overflow-y-auto p-3">
+                  <AnalysisView analysis={analysis} />
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center p-6 text-center">
+                <div>
+                  <div className="text-sm muted">
+                    Click a holding on the left to inspect it,
+                  </div>
+                  <div className="text-sm muted">or run analysis on the whole portfolio.</div>
+                  <button
+                    onClick={analyze}
+                    disabled={busyAnalyze}
+                    className="btn-primary mt-4 rounded-lg px-3 py-1.5 text-sm"
+                  >
+                    {busyAnalyze ? "Analyzing…" : "Analyze with Claude"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function PortfolioOverview({ snapshot }: { snapshot: PortfolioSnapshot }) {
-  const total =
-    snapshot.totalValue ??
-    snapshot.holdings.reduce((acc, h) => acc + (h.marketValue ?? 0), 0);
-  const [expanded, setExpanded] = useState<number | null>(null);
-
-  function toggle(i: number) {
-    setExpanded((cur) => (cur === i ? null : i));
-  }
-
-  const sorted = snapshot.holdings
-    .slice()
-    .sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0));
-
+function HoldingRow({
+  h,
+  total,
+  active,
+  onClick,
+}: {
+  h: Holding;
+  total: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const pct = total ? ((h.marketValue ?? 0) / total) * 100 : 0;
+  const pnl = h.unrealizedPnL ?? 0;
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Total value" value={`$${(total ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
-        <Stat label="Cash" value={snapshot.cashBalance != null ? `$${snapshot.cashBalance.toLocaleString()}` : "—"} />
-        <Stat label="Holdings" value={`${snapshot.holdings.length}`} />
-        <Stat label="As of" value={snapshot.asOf ?? "—"} />
+    <tr
+      onClick={onClick}
+      className={`cursor-pointer border-t border-border transition ${
+        active ? "bg-accent/[0.08]" : "hover:bg-white/[0.03]"
+      }`}
+    >
+      <td className="px-3 py-2">
+        <div className="font-semibold">{h.symbol}</div>
+        {h.name && (
+          <div className="truncate text-[11px] muted" title={h.name}>
+            {h.name}
+          </div>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">{h.quantity}</td>
+      <td className="px-3 py-2 text-right">
+        {h.marketValue != null ? `$${h.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
+      </td>
+      <td className={`px-3 py-2 text-right ${pnl > 0 ? "gain" : pnl < 0 ? "loss" : ""}`}>
+        {h.unrealizedPnL != null
+          ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+          : "—"}
+        {h.unrealizedPnLPct != null && (
+          <div className="text-[10px]">{`${pnl >= 0 ? "+" : ""}${h.unrealizedPnLPct.toFixed(1)}%`}</div>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">{pct.toFixed(1)}%</td>
+    </tr>
+  );
+}
+
+function StagedPanel({
+  staged,
+  busy,
+  onUpload,
+  onCancel,
+  compact,
+}: {
+  staged: StagedImage;
+  busy: boolean;
+  onUpload: () => void;
+  onCancel: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={staged.dataUrl}
+          alt="Staged"
+          className={`rounded-lg border border-border ${compact ? "max-h-32" : "max-h-72"}`}
+        />
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          aria-label="Remove screenshot"
+          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-bg text-xs hover:border-loss hover:text-loss"
+        >
+          ×
+        </button>
       </div>
-      <div className="card overflow-x-auto p-0">
-        <table className="w-full text-sm">
-          <thead className="text-xs text-gray-400">
-            <tr>
-              <th className="px-3 py-3 text-left"></th>
-              <th className="px-3 py-3 text-left">Symbol</th>
-              <th className="px-3 py-3 text-right">Qty</th>
-              <th className="px-3 py-3 text-right">Price</th>
-              <th className="px-3 py-3 text-right">Value</th>
-              <th className="px-3 py-3 text-right">P/L</th>
-              <th className="px-3 py-3 text-right">% of port</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((h, i) => {
-              const pct = total ? ((h.marketValue ?? 0) / total) * 100 : 0;
-              const pnl = h.unrealizedPnL ?? 0;
-              const isOpen = expanded === i;
-              return (
-                <>
-                  <tr
-                    key={`row-${i}`}
-                    onClick={() => toggle(i)}
-                    className={`cursor-pointer border-t border-border transition hover:bg-bg/50 ${isOpen ? "bg-bg/50" : ""}`}
-                  >
-                    <td className="px-3 py-2 text-gray-500">
-                      <span className={`inline-block transition ${isOpen ? "rotate-90" : ""}`}>›</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="font-semibold">{h.symbol}</div>
-                      {h.name && <div className="text-xs text-gray-500">{h.name}</div>}
-                    </td>
-                    <td className="px-3 py-2 text-right">{h.quantity}</td>
-                    <td className="px-3 py-2 text-right">{h.marketPrice != null ? `$${h.marketPrice.toFixed(2)}` : "—"}</td>
-                    <td className="px-3 py-2 text-right">{h.marketValue != null ? `$${h.marketValue.toLocaleString()}` : "—"}</td>
-                    <td className={`px-3 py-2 text-right ${pnl > 0 ? "text-gain" : pnl < 0 ? "text-loss" : ""}`}>
-                      {h.unrealizedPnL != null ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString()}` : "—"}
-                      {h.unrealizedPnLPct != null && (
-                        <div className="text-xs">{`${pnl >= 0 ? "+" : ""}${h.unrealizedPnLPct.toFixed(1)}%`}</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">{pct.toFixed(1)}%</td>
-                  </tr>
-                  {isOpen && (
-                    <tr key={`detail-${i}`} className="border-t border-border bg-bg/30">
-                      <td colSpan={7} className="p-0">
-                        <HoldingDetail holding={h} totalPortfolioValue={total ?? 0} />
-                      </td>
-                    </tr>
-                  )}
-                </>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="text-[11px] muted">
+        {(staged.resizedBytes / 1024).toFixed(0)} KB · {staged.width}×{staged.height}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={onUpload}
+          disabled={busy}
+          className="btn-primary flex-1 rounded-lg px-3 py-2 text-sm"
+        >
+          {busy ? "Parsing…" : "Upload & parse"}
+        </button>
+        <button onClick={onCancel} disabled={busy} className="rounded-lg px-3 py-2 text-sm">
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -363,62 +484,59 @@ function PortfolioOverview({ snapshot }: { snapshot: PortfolioSnapshot }) {
 function AnalysisView({ analysis }: { analysis: PortfolioAnalysis }) {
   return (
     <div className="space-y-3">
-      <div className="card space-y-2">
-        <div className="label">Summary</div>
+      <div>
+        <div className="label mb-1">Summary</div>
         <p className="text-sm">{analysis.summary}</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Block title="Concentration risk" body={analysis.concentrationRisk} />
-          <Block title="Diversification" body={analysis.diversification} />
-        </div>
       </div>
-
-      <div className="card space-y-2">
-        <div className="label">Notable observations</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Block title="Concentration risk" body={analysis.concentrationRisk} />
+        <Block title="Diversification" body={analysis.diversification} />
+      </div>
+      <div>
+        <div className="label mb-1">Notable observations</div>
         <ul className="space-y-1 text-sm">
           {analysis.notableObservations.map((o, i) => (
             <li key={i}>• {o}</li>
           ))}
         </ul>
       </div>
-
-      <div className="card space-y-3">
-        <div className="label">Recommendations</div>
+      <div>
+        <div className="label mb-1">Recommendations</div>
         <ul className="space-y-2">
           {analysis.recommendations.map((r, i) => (
-            <li key={i} className="rounded-lg border border-border p-3">
+            <li key={i} className="rounded-lg border border-border bg-white/[0.02] p-2.5">
               <div className="flex items-center justify-between">
-                <div className="font-semibold">{r.title}</div>
+                <div className="text-sm font-semibold">{r.title}</div>
                 <span
-                  className={`rounded-md border px-2 py-0.5 text-xs ${
+                  className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${
                     r.priority === "high"
-                      ? "border-loss/40 text-loss"
+                      ? "border border-loss/40 loss"
                       : r.priority === "medium"
-                        ? "border-yellow-600/40 text-yellow-400"
-                        : "border-border text-gray-400"
+                        ? "border border-warn/40 warn"
+                        : "border border-border muted"
                   }`}
                 >
                   {r.priority}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-gray-300">{r.rationale}</p>
+              <p className="mt-1 text-xs text-gray-300">{r.rationale}</p>
             </li>
           ))}
         </ul>
       </div>
-
-      <div className="card space-y-3">
-        <div className="label">Options ideas (paired with your holdings)</div>
+      <div>
+        <div className="label mb-1">Options ideas</div>
         <ul className="space-y-2">
           {analysis.ideas.map((it, i) => (
-            <li key={i} className="rounded-lg border border-border p-3">
+            <li key={i} className="rounded-lg border border-border bg-white/[0.02] p-2.5">
               <div className="flex items-center justify-between">
-                <div className="font-semibold">{it.name}</div>
-                <span className="rounded-md border border-border px-2 py-0.5 text-xs text-gray-300">
-                  Pairs with: {it.fitWith}
+                <div className="text-sm font-semibold">{it.name}</div>
+                <span className="rounded border border-border px-1.5 py-0.5 text-[10px] muted">
+                  {it.fitWith}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-gray-300">{it.thesis}</p>
-              <pre className="mt-2 text-xs text-gray-400 font-mono whitespace-pre-wrap">{it.structure}</pre>
+              <p className="mt-1 text-xs text-gray-300">{it.thesis}</p>
+              <pre className="mt-1.5 whitespace-pre-wrap font-mono text-[11px] muted">{it.structure}</pre>
             </li>
           ))}
         </ul>
@@ -429,19 +547,18 @@ function AnalysisView({ analysis }: { analysis: PortfolioAnalysis }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card">
-      <div className="text-xs text-gray-400">{label}</div>
-      <div className="kpi">{value}</div>
+    <div className="flex items-baseline justify-between">
+      <span className="text-xs muted">{label}</span>
+      <span className="kpi-sm">{value}</span>
     </div>
   );
 }
 
 function Block({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="text-xs text-gray-400">{title}</div>
-      <p className="mt-1 text-sm">{body}</p>
+    <div className="rounded-lg border border-border bg-white/[0.02] p-2.5">
+      <div className="text-[10px] uppercase tracking-wider muted">{title}</div>
+      <p className="mt-1 text-xs">{body}</p>
     </div>
   );
 }
-
