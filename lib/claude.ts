@@ -4,8 +4,8 @@ let client: Anthropic | null = null;
 
 export function anthropic(): Anthropic {
   if (client) return client;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY;
+  if (!apiKey) throw new Error("Set ANTHROPIC_API_KEY or CLAUDE_API_KEY");
   client = new Anthropic({ apiKey });
   return client;
 }
