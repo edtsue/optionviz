@@ -12,6 +12,7 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [stagedFile, setStagedFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -31,21 +32,27 @@ export default function PortfolioPage() {
     } catch {}
   }
 
-  async function handleFile(file: File) {
+  async function stage(file: File) {
     if (!file.type.startsWith("image/")) {
       setError("Please drop an image file");
       return;
     }
     setError(null);
+    const dataUrl = await fileToDataURL(file);
+    setPreview(dataUrl);
+    setStagedFile(file);
+  }
+
+  async function uploadStaged() {
+    if (!stagedFile || !preview) return;
     setBusyParse(true);
+    setError(null);
     try {
-      const dataUrl = await fileToDataURL(file);
-      setPreview(dataUrl);
-      const base64 = dataUrl.split(",")[1];
+      const base64 = preview.split(",")[1];
       const res = await fetch("/api/parse-portfolio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: file.type }),
+        body: JSON.stringify({ imageBase64: base64, mediaType: stagedFile.type }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -54,6 +61,7 @@ export default function PortfolioPage() {
       const parsed = (await res.json()) as PortfolioSnapshot;
       setSnapshot(parsed);
       setAnalysis(null);
+      setStagedFile(null);
       persist(parsed, null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse");
@@ -95,18 +103,38 @@ export default function PortfolioPage() {
       const file = item.getAsFile();
       if (file) {
         e.preventDefault();
-        handleFile(file);
+        stage(file);
       }
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, []);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Enter" || !stagedFile || busyParse) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      uploadStaged();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stagedFile, busyParse]);
+
   function clear() {
     setSnapshot(null);
     setAnalysis(null);
     setPreview(null);
+    setStagedFile(null);
     persist(null, null);
+  }
+
+  function cancelStaged() {
+    setStagedFile(null);
+    setPreview(null);
+    setError(null);
   }
 
   return (
@@ -125,45 +153,70 @@ export default function PortfolioPage() {
           <div className="label">Upload portfolio screenshot</div>
           <div className="text-xs text-gray-500">Drop · Paste · Click</div>
         </div>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setHover(true);
-          }}
-          onDragLeave={() => setHover(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setHover(false);
-            const f = e.dataTransfer.files[0];
-            if (f) handleFile(f);
-          }}
-          className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition ${
-            hover ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
-          } ${busyParse ? "opacity-60" : ""}`}
-        >
-          <div className="text-sm font-medium">
-            {busyParse ? "Parsing with Claude vision…" : hover ? "Drop to parse" : "Drag a portfolio screenshot here"}
+
+        {!stagedFile && !snapshot && (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setHover(true);
+            }}
+            onDragLeave={() => setHover(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setHover(false);
+              const f = e.dataTransfer.files[0];
+              if (f) stage(f);
+            }}
+            className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition ${
+              hover ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
+            }`}
+          >
+            <div className="text-sm font-medium">
+              {hover ? "Drop to stage" : "Drag a portfolio screenshot here"}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              or paste (⌘V) · or click to choose a file
+            </div>
           </div>
-          <div className="mt-1 text-xs text-gray-500">
-            or paste (⌘V) · or click to choose a file
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            disabled={busyParse}
-            className="hidden"
-          />
-        </div>
-        {error && <div className="text-sm text-loss">{error}</div>}
-        {preview && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Preview" className="max-h-56 rounded-lg border border-border" />
         )}
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onChange={(e) => e.target.files?.[0] && stage(e.target.files[0])}
+          className="hidden"
+        />
+
+        {stagedFile && preview && (
+          <div className="space-y-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={preview} alt="Staged" className="max-h-72 rounded-lg border border-border" />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
+              <span>
+                {stagedFile.name || "pasted image"} · {(stagedFile.size / 1024).toFixed(0)} KB
+              </span>
+              <span className="text-gray-500">Press Enter to upload</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={uploadStaged}
+                disabled={busyParse}
+                className="btn-primary flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold"
+              >
+                {busyParse ? "Parsing with Claude…" : "Upload & parse"}
+              </button>
+              <button onClick={cancelStaged} disabled={busyParse} className="rounded-lg px-4 py-2.5 text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="text-sm text-loss">{error}</div>}
       </div>
 
       {snapshot && (
