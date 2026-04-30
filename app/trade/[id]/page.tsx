@@ -1,23 +1,11 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
+import { fillImpliedVolsForTrade } from "@/lib/payoff";
 import { detectStrategy } from "@/lib/strategies";
-import {
-  buildPayoff,
-  fillImpliedVolsForTrade,
-  netGreeks,
-  totalPnL,
-  tradeStats,
-  type PayoffPoint,
-} from "@/lib/payoff";
-import { strategyKPIs } from "@/lib/strategy-kpis";
-import { yearsBetween } from "@/lib/black-scholes";
-import { PayoffChart } from "@/components/PayoffChart";
-import { GreeksPanel } from "@/components/GreeksPanel";
-import { IdeasPanel } from "@/components/IdeasPanel";
-import { TimeSlider } from "@/components/TimeSlider";
+import { TradeAnalysis } from "@/components/TradeAnalysis";
 import type { Trade } from "@/types/trade";
 
 export default function TradePage() {
@@ -25,8 +13,6 @@ export default function TradePage() {
   const params = useParams<{ id: string }>();
   const [trade, setTrade] = useState<Trade | null>(null);
   const [notFound, setNotFound] = useState(false);
-  // dayOffset: 0 = today, 1 = expiry
-  const [dayProgress, setDayProgress] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,29 +29,6 @@ export default function TradePage() {
     };
   }, [params.id]);
 
-  const data = useMemo(() => {
-    if (!trade) return null;
-    const strategy = detectStrategy(trade);
-    const stats = tradeStats(trade);
-    const greeks = netGreeks(trade);
-    const kpis = strategyKPIs(trade);
-
-    const lastExpiry = new Date(
-      Math.max(...trade.legs.map((l) => new Date(l.expiration).getTime())),
-    );
-    const now = new Date();
-    const targetDate = new Date(now.getTime() + dayProgress * (lastExpiry.getTime() - now.getTime()));
-    const dteAtTarget = yearsBetween(targetDate, lastExpiry) * 365;
-
-    const fullPayoff = buildPayoff(trade);
-    const customSeries: PayoffPoint[] = fullPayoff.map((p) => ({
-      ...p,
-      mid: +totalPnL(trade, p.spot, targetDate).toFixed(2),
-    }));
-    const greeksAtTarget = netGreeks(trade, targetDate);
-    return { strategy, stats, greeks, kpis, customSeries, targetDate, dteAtTarget, greeksAtTarget };
-  }, [trade, dayProgress]);
-
   if (notFound) {
     return (
       <div className="card text-center">
@@ -77,7 +40,9 @@ export default function TradePage() {
     );
   }
 
-  if (!trade || !data) return <div className="text-sm text-gray-400">Loading…</div>;
+  if (!trade) return <div className="text-sm text-gray-400">Loading…</div>;
+
+  const strategy = detectStrategy(trade);
 
   async function onDelete() {
     if (!confirm("Delete this trade?")) return;
@@ -90,10 +55,10 @@ export default function TradePage() {
       <div className="flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold">
-            {trade.symbol} <span className="text-gray-400">· {data.strategy.label}</span>
+            {trade.symbol} <span className="text-gray-400">· {strategy.label}</span>
           </h1>
           <div className="text-sm text-gray-400">
-            Underlying ${trade.underlyingPrice.toFixed(2)} · {data.strategy.bias} bias
+            Underlying ${trade.underlyingPrice.toFixed(2)} · {strategy.bias} bias
           </div>
         </div>
         <button onClick={onDelete} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
@@ -101,31 +66,7 @@ export default function TradePage() {
         </button>
       </div>
 
-      <PayoffChart
-        data={data.customSeries}
-        underlying={trade.underlyingPrice}
-        breakevens={data.stats.breakevens}
-        midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
-      />
-
-      <TimeSlider value={dayProgress} onChange={setDayProgress} dteAtTarget={data.dteAtTarget} />
-
-      {data.kpis.length > 0 && (
-        <div className="card space-y-3">
-          <div className="label">{data.strategy.label} stats</div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {data.kpis.map((k) => (
-              <div key={k.label}>
-                <div className="text-xs text-gray-400">{k.label}</div>
-                <div className="kpi">{k.value}</div>
-                {k.hint && <div className="text-xs text-gray-500">{k.hint}</div>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <GreeksPanel greeks={data.greeksAtTarget} stats={data.stats} />
+      <TradeAnalysis trade={trade} />
 
       <div className="card">
         <div className="label mb-2">Legs</div>
@@ -162,14 +103,6 @@ export default function TradePage() {
           <p className="text-sm whitespace-pre-wrap">{trade.notes}</p>
         </div>
       )}
-
-      <IdeasPanel trade={trade} />
     </div>
   );
-}
-
-function dayProgressLabel(progress: number, dteAtTarget: number): string {
-  if (progress <= 0.001) return "Today";
-  if (progress >= 0.999) return "At expiry";
-  return `${dteAtTarget.toFixed(0)}d to expiry`;
 }

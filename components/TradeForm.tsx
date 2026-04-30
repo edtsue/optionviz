@@ -3,14 +3,19 @@ import { useState } from "react";
 import type { Leg, Trade } from "@/types/trade";
 
 interface Props {
-  initial: Trade;
+  trade: Trade;
+  onChange: (t: Trade) => void;
   onSave: (t: Trade) => Promise<void>;
 }
 
-export function TradeForm({ initial, onSave }: Props) {
-  const [trade, setTrade] = useState<Trade>(initial);
+export function TradeForm({ trade, onChange, onSave }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function setTrade(updater: Trade | ((t: Trade) => Trade)) {
+    const next = typeof updater === "function" ? (updater as (t: Trade) => Trade)(trade) : updater;
+    onChange(next);
+  }
 
   function setLeg(i: number, patch: Partial<Leg>) {
     setTrade((t) => ({
@@ -43,7 +48,27 @@ export function TradeForm({ initial, onSave }: Props) {
     setTrade((t) => ({ ...t, legs: t.legs.filter((_, idx) => idx !== i) }));
   }
 
+  function validate(t: Trade): string | null {
+    if (!t.symbol.trim()) return "Symbol is required";
+    if (!t.underlyingPrice || t.underlyingPrice <= 0) return "Underlying price must be greater than 0";
+    if (!t.legs.length) return "At least one leg is required";
+    for (const [i, l] of t.legs.entries()) {
+      const n = i + 1;
+      if (!l.expiration || Number.isNaN(new Date(l.expiration).getTime()))
+        return `Leg ${n}: expiration is required`;
+      if (!l.strike || l.strike <= 0) return `Leg ${n}: strike must be > 0`;
+      if (!l.quantity || l.quantity <= 0) return `Leg ${n}: quantity must be > 0`;
+      if (l.premium == null || l.premium < 0) return `Leg ${n}: premium must be ≥ 0`;
+    }
+    return null;
+  }
+
   async function submit() {
+    const err = validate(trade);
+    if (err) {
+      setError(err);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
