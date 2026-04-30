@@ -71,6 +71,29 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
     return `/trade/new?${params.toString()}`;
   }
 
+  function openOptionAsTrade() {
+    const parsed =
+      parseOptionSymbol(holding.symbol) ?? parseOptionSymbol(holding.name);
+    const params = new URLSearchParams();
+    params.set("symbol", parsed?.underlying ?? holding.symbol);
+    if (parsed) {
+      params.set("type", parsed.type);
+      params.set("strike", String(parsed.strike));
+      params.set("expiration", parsed.expiration);
+    }
+    params.set("qty", String(Math.abs(holding.quantity || 1)));
+    // Quantity sign hints at side: positive = long, negative = short
+    params.set("side", (holding.quantity ?? 0) < 0 ? "short" : "long");
+    if (holding.costBasis != null) params.set("premium", String(holding.costBasis));
+    if (holding.marketPrice != null && parsed) {
+      // For an option position, marketPrice is the option's price, not the
+      // underlying. We don't know the underlying spot from this data, so leave
+      // it unset and let the user fill it.
+    }
+    params.set("strategy", "single_option");
+    return `/trade/new?${params.toString()}`;
+  }
+
   return (
     <div className="space-y-4 bg-bg/50 p-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -129,7 +152,7 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
           </Link>
         )}
         {isOption && (
-          <Link href={`/trade/new?symbol=${encodeURIComponent(holding.symbol)}`} className="rounded-lg border border-border px-3 py-1.5 text-sm hover:border-accent">
+          <Link href={openOptionAsTrade()} className="rounded-lg border border-border px-3 py-1.5 text-sm hover:border-accent">
             Open as trade
           </Link>
         )}

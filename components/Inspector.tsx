@@ -9,6 +9,15 @@ interface Props {
   trade: Trade;
 }
 
+const GREEK_HINTS: Record<string, string> = {
+  Delta: "$ change per $1 move in underlying",
+  IV: "Implied volatility (avg of legs)",
+  Theta: "$ change per day from time decay",
+  Gamma: "Delta change per $1 underlying move",
+  Vega: "$ change per 1 IV point",
+  Rho: "$ change per 1% rate move",
+};
+
 function fmtUsd(v: number | "unlimited"): string {
   if (v === "unlimited") return "∞";
   return `${v >= 0 ? "" : "-"}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -22,32 +31,57 @@ function tone(v: number | "unlimited"): string {
 }
 
 export function Inspector({ greeks, stats, trade }: Props) {
-  const greekRows: Array<[string, string, number]> = [
-    ["Δ", "Delta", greeks.delta],
-    ["Γ", "Gamma", greeks.gamma],
-    ["Θ", "Theta", greeks.theta],
-    ["ν", "Vega", greeks.vega],
-    ["ρ", "Rho", greeks.rho],
-  ];
+  const ivs = trade.legs.map((l) => l.iv ?? null).filter((v): v is number => v != null);
+  const avgIV = ivs.length ? ivs.reduce((a, b) => a + b, 0) / ivs.length : null;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="card card-tight">
         <div className="mb-2 flex items-baseline justify-between">
-          <div className="label">Net Greeks</div>
-          <div className="text-[10px] muted">×100 mult applied</div>
+          <div className="label">Risk exposure</div>
+          <div className="text-[10px] muted">per-position $</div>
         </div>
-        <div className="grid grid-cols-5 gap-2 data-grid">
-          {greekRows.map(([sym, name, val]) => {
-            const t = val > 0 ? "gain" : val < 0 ? "loss" : "";
-            return (
-              <div key={name} className="flex flex-col items-center rounded-md border border-border/60 bg-white/[0.02] p-2">
-                <span className="text-[10px] muted">{name}</span>
-                <span className="font-mono text-base">{sym}</span>
-                <span className={`kpi-xs ${t}`}>{val.toFixed(name === "Gamma" ? 4 : 2)}</span>
-              </div>
-            );
-          })}
+        {/* Primary trio: Delta, IV, Theta */}
+        <div className="grid grid-cols-3 gap-2 data-grid">
+          <PrimaryGreek
+            name="Delta"
+            value={`${greeks.delta >= 0 ? "+" : "−"}$${Math.abs(greeks.delta).toFixed(2)}`}
+            tone={greeks.delta > 0 ? "gain" : greeks.delta < 0 ? "loss" : ""}
+            hint={GREEK_HINTS.Delta}
+          />
+          <PrimaryGreek
+            name="Implied Vol"
+            value={avgIV != null ? `${(avgIV * 100).toFixed(1)}%` : "—"}
+            tone={avgIV != null ? (avgIV > 0.5 ? "warn" : "") : ""}
+            hint={GREEK_HINTS.IV}
+          />
+          <PrimaryGreek
+            name="Theta"
+            value={`${greeks.theta >= 0 ? "+" : "−"}$${Math.abs(greeks.theta).toFixed(2)}/d`}
+            tone={greeks.theta > 0 ? "gain" : greeks.theta < 0 ? "loss" : ""}
+            hint={GREEK_HINTS.Theta}
+          />
+        </div>
+        {/* Secondary trio: Gamma, Vega, Rho — smaller, still readable */}
+        <div className="mt-2 grid grid-cols-3 gap-2 border-t border-border pt-2 data-grid">
+          <SecondaryGreek
+            name="Gamma"
+            value={greeks.gamma.toFixed(4)}
+            tone={greeks.gamma > 0 ? "gain" : greeks.gamma < 0 ? "loss" : ""}
+            hint={GREEK_HINTS.Gamma}
+          />
+          <SecondaryGreek
+            name="Vega"
+            value={`${greeks.vega >= 0 ? "+" : "−"}$${Math.abs(greeks.vega).toFixed(2)}`}
+            tone={greeks.vega > 0 ? "gain" : greeks.vega < 0 ? "loss" : ""}
+            hint={GREEK_HINTS.Vega}
+          />
+          <SecondaryGreek
+            name="Rho"
+            value={`${greeks.rho >= 0 ? "+" : "−"}$${Math.abs(greeks.rho).toFixed(2)}`}
+            tone={greeks.rho > 0 ? "gain" : greeks.rho < 0 ? "loss" : ""}
+            hint={GREEK_HINTS.Rho}
+          />
         </div>
       </div>
 
@@ -99,6 +133,47 @@ function Cell({
         {value}
       </span>
       {sub && <span className="text-[10px] muted">{sub}</span>}
+    </div>
+  );
+}
+
+function PrimaryGreek({
+  name,
+  value,
+  tone,
+  hint,
+}: {
+  name: string;
+  value: string;
+  tone: string;
+  hint: string;
+}) {
+  return (
+    <div
+      className="flex min-w-0 flex-col rounded-md border border-border bg-white/[0.02] p-2"
+      title={hint}
+    >
+      <span className="text-[10px] uppercase tracking-wider muted">{name}</span>
+      <span className={`kpi-sm truncate ${tone}`}>{value}</span>
+    </div>
+  );
+}
+
+function SecondaryGreek({
+  name,
+  value,
+  tone,
+  hint,
+}: {
+  name: string;
+  value: string;
+  tone: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col" title={hint}>
+      <span className="text-[10px] muted">{name}</span>
+      <span className={`text-xs font-mono font-semibold truncate ${tone}`}>{value}</span>
     </div>
   );
 }
