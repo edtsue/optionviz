@@ -34,6 +34,10 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
   return (
     <div className="flex flex-col gap-3">
       <div className="card card-tight space-y-3">
+        <div className="flex items-baseline justify-between">
+          <span className="label">Position</span>
+          <span className="text-[10px] muted">$ values are per-position</span>
+        </div>
         <Hero label="Max Profit" value={fmtUsd(stats.maxProfit)} t="gain" />
         <Hero label="Max Loss" value={fmtUsd(stats.maxLoss)} t="loss" />
         <Hero
@@ -62,9 +66,9 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
           <div className="grid grid-cols-3 gap-2 data-grid">
             <Cell
               label="Delta"
-              value={`${greeks.delta >= 0 ? "+" : "−"}$${Math.abs(greeks.delta).toFixed(0)}`}
+              value={`${greeks.delta >= 0 ? "+" : "−"}${Math.abs(greeks.delta / 100).toFixed(2)}`}
               t={greeks.delta > 0 ? "gain" : greeks.delta < 0 ? "loss" : ""}
-              title="$ change per $1 move in underlying"
+              title="Position delta (decimal). Multiply by 100 for $ exposure per $1 underlying move."
             />
             <Cell
               label="Implied Vol"
@@ -93,8 +97,9 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
             <Cell label="Margin (est)" value={fmtUsd(stats.marginEstimate)} />
             <Cell
               label="Gamma"
-              value={greeks.gamma.toFixed(4)}
+              value={(greeks.gamma / 100).toFixed(4)}
               t={greeks.gamma > 0 ? "gain" : greeks.gamma < 0 ? "loss" : ""}
+              title="Position gamma (decimal). Delta change per $1 underlying move."
             />
             <Cell
               label="Vega"
