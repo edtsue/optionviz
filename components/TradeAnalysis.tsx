@@ -13,11 +13,10 @@ import {
 import { strategyKPIs } from "@/lib/strategy-kpis";
 import { yearsBetween } from "@/lib/black-scholes";
 import { PayoffChart } from "@/components/PayoffChart";
-import { GreeksPanel } from "@/components/GreeksPanel";
-import { IdeasPanel } from "@/components/IdeasPanel";
 import { TimeSlider } from "@/components/TimeSlider";
+import { Inspector } from "@/components/Inspector";
 
-export function TradeAnalysis({ trade }: { trade: Trade }) {
+export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
   const [dayProgress, setDayProgress] = useState(0);
 
   const ready = useMemo(() => {
@@ -53,48 +52,56 @@ export function TradeAnalysis({ trade }: { trade: Trade }) {
 
   if (!ready || !data) {
     return (
-      <div className="card text-sm text-gray-400">
+      <div className="card text-sm muted">
         Fill in symbol, underlying price, strike, premium, and expiration to see the payoff
         chart, Greeks, and ideas.
       </div>
     );
   }
 
-  return (
-    <div className="space-y-5">
-      <div>
-        <div className="text-sm text-gray-400">
-          {data.strategy.label} · {data.strategy.bias} bias
-        </div>
-      </div>
-
+  const main = (
+    <div className="flex flex-col gap-3">
       <PayoffChart
         data={data.customSeries}
         underlying={data.filled.underlyingPrice}
         breakevens={data.stats.breakevens}
         midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
       />
-
       <TimeSlider value={dayProgress} onChange={setDayProgress} dteAtTarget={data.dteAtTarget} />
-
       {data.kpis.length > 0 && (
-        <div className="card space-y-3">
-          <div className="label">{data.strategy.label} stats</div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="card card-tight">
+          <div className="label mb-2">{data.strategy.label} stats</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 data-grid">
             {data.kpis.map((k) => (
-              <div key={k.label}>
-                <div className="text-xs text-gray-400">{k.label}</div>
-                <div className="kpi">{k.value}</div>
-                {k.hint && <div className="text-xs text-gray-500">{k.hint}</div>}
+              <div key={k.label} className="flex flex-col">
+                <span className="text-[10px] muted">{k.label}</span>
+                <span className="kpi-sm">{k.value}</span>
+                {k.hint && <span className="text-[10px] muted">{k.hint}</span>}
               </div>
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
 
-      <GreeksPanel greeks={data.greeksAtTarget} stats={data.stats} />
+  const right = (
+    <Inspector greeks={data.greeksAtTarget} stats={data.stats} trade={data.filled} />
+  );
 
-      <IdeasPanel trade={data.filled} />
+  if (!sideBySide) {
+    return (
+      <div className="space-y-3">
+        {main}
+        {right}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0">{main}</div>
+      <div>{right}</div>
     </div>
   );
 }

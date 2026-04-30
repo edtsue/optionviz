@@ -158,9 +158,12 @@ export default function PortfolioPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Portfolio</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Portfolio</h1>
+          <p className="text-xs muted">Account-wide analysis · concentration · ideas</p>
+        </div>
         {snapshot && (
           <button onClick={clear} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
             Clear

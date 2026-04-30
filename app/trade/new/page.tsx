@@ -35,31 +35,27 @@ export default function NewTradePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">New trade</h1>
+    <div className="grid gap-4 p-4 md:p-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="space-y-3 min-w-0">
+        <div className="label">Capture</div>
+        <TicketUpload
+          onParsed={(p) => {
+            setTrade((current) => ({
+              ...current,
+              symbol: p.symbol || current.symbol,
+              underlyingPrice: p.underlyingPrice || current.underlyingPrice,
+              legs: p.legs.length ? p.legs : current.legs,
+              notes: p.notes ?? current.notes,
+            }));
+          }}
+        />
+        <div className="label">Trade</div>
+        <TradeForm trade={trade} onChange={setTrade} onSave={save} />
+      </section>
 
-      <TicketUpload
-        onParsed={(p) => {
-          setTrade((current) => ({
-            ...current,
-            symbol: p.symbol || current.symbol,
-            underlyingPrice: p.underlyingPrice || current.underlyingPrice,
-            legs: p.legs.length ? p.legs : current.legs,
-            notes: p.notes ?? current.notes,
-          }));
-        }}
-      />
-
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <div className="space-y-4">
-          <div className="label">Trade details</div>
-          <TradeForm trade={trade} onChange={setTrade} onSave={save} />
-        </div>
-        <div className="space-y-4">
-          <div className="label">Live preview</div>
-          <TradeAnalysis trade={trade} />
-        </div>
-      </div>
+      <section className="min-w-0">
+        <TradeAnalysis trade={trade} />
+      </section>
     </div>
   );
 }

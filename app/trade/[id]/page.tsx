@@ -31,16 +31,18 @@ export default function TradePage() {
 
   if (notFound) {
     return (
-      <div className="card text-center">
-        <p>Trade not found.</p>
-        <Link href="/" className="btn-primary mt-3 inline-block rounded-lg px-3 py-2 text-sm">
-          Back home
-        </Link>
+      <div className="p-6">
+        <div className="card mx-auto max-w-md text-center">
+          <p>Trade not found.</p>
+          <Link href="/" className="btn-primary mt-3 inline-block rounded-lg px-3 py-2 text-sm">
+            Back home
+          </Link>
+        </div>
       </div>
     );
   }
 
-  if (!trade) return <div className="text-sm text-gray-400">Loading…</div>;
+  if (!trade) return <div className="p-6 text-sm muted">Loading…</div>;
 
   const strategy = detectStrategy(trade);
 
@@ -51,54 +53,56 @@ export default function TradePage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-baseline justify-between">
+    <div className="space-y-4 p-4 md:p-6">
+      <header className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">
-            {trade.symbol} <span className="text-gray-400">· {strategy.label}</span>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {trade.symbol} <span className="muted">· {strategy.label}</span>
           </h1>
-          <div className="text-sm text-gray-400">
-            Underlying ${trade.underlyingPrice.toFixed(2)} · {strategy.bias} bias
+          <div className="text-xs muted data-grid">
+            Underlying <span className="kpi-xs">${trade.underlyingPrice.toFixed(2)}</span> · {strategy.bias} bias
           </div>
         </div>
         <button onClick={onDelete} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
           Delete
         </button>
-      </div>
+      </header>
 
       <TradeAnalysis trade={trade} />
 
-      <div className="card">
+      <div className="card card-tight">
         <div className="label mb-2">Legs</div>
-        <div className="space-y-2 text-sm">
+        <div className="grid gap-1.5 text-sm data-grid">
           {trade.legs.map((l, i) => (
             <div
               key={i}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-white/[0.02] px-2 py-1.5"
             >
-              <div>
-                <span className={l.side === "long" ? "text-gain" : "text-loss"}>
-                  {l.side === "long" ? "Long" : "Short"}
-                </span>{" "}
-                {l.quantity}× {l.type === "call" ? "Call" : "Put"} @ ${l.strike}
+              <div className="flex items-center gap-2">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${l.side === "long" ? "border border-gain/40 gain" : "border border-loss/40 loss"}`}>
+                  {l.side === "long" ? "LONG" : "SHORT"}
+                </span>
+                <span className="kpi-xs">
+                  {l.quantity}× {l.type === "call" ? "C" : "P"} ${l.strike}
+                </span>
               </div>
-              <div className="text-xs text-gray-400">
-                {l.expiration} · prem ${l.premium.toFixed(2)} · IV{" "}
-                {((l.iv ?? 0) * 100).toFixed(1)}%
+              <div className="text-[11px] muted">
+                {l.expiration} · prem ${l.premium.toFixed(2)} · IV {((l.iv ?? 0) * 100).toFixed(1)}%
               </div>
             </div>
           ))}
           {trade.underlying && (
-            <div className="rounded-md border border-border p-2 text-sm">
-              <span className="text-gain">Long</span> {trade.underlying.shares} shares @ $
-              {trade.underlying.costBasis.toFixed(2)}
+            <div className="flex items-center justify-between rounded-md border border-border bg-white/[0.02] px-2 py-1.5 text-sm">
+              <span className="kpi-xs">
+                <span className="gain">LONG</span> {trade.underlying.shares} shares @ ${trade.underlying.costBasis.toFixed(2)}
+              </span>
             </div>
           )}
         </div>
       </div>
 
       {trade.notes && (
-        <div className="card">
+        <div className="card card-tight">
           <div className="label mb-1">Notes</div>
           <p className="text-sm whitespace-pre-wrap">{trade.notes}</p>
         </div>
