@@ -83,7 +83,7 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
   return (
     <div className="space-y-4">
       <div className="card space-y-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Symbol">
             <input
               value={trade.symbol}
@@ -98,13 +98,17 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
               onChange={(e) => setTrade({ ...trade, underlyingPrice: +e.target.value })}
             />
           </Field>
-          <Field label="Risk-free %">
-            <input
-              type="number"
-              step="0.001"
-              value={trade.riskFreeRate}
-              onChange={(e) => setTrade({ ...trade, riskFreeRate: +e.target.value })}
-            />
+          <Field label="Risk-free rate (%)">
+            <div className="relative">
+              <input
+                type="number"
+                step="0.1"
+                value={(trade.riskFreeRate * 100).toFixed(2)}
+                onChange={(e) => setTrade({ ...trade, riskFreeRate: +e.target.value / 100 })}
+                className="w-full pr-7"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs muted">%</span>
+            </div>
           </Field>
           <Field label="Shares (covered)">
             <input
@@ -114,9 +118,10 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
                 const shares = +e.target.value;
                 setTrade({
                   ...trade,
-                  underlying: shares > 0
-                    ? { shares, costBasis: trade.underlying?.costBasis ?? trade.underlyingPrice }
-                    : null,
+                  underlying:
+                    shares > 0
+                      ? { shares, costBasis: trade.underlying?.costBasis ?? trade.underlyingPrice }
+                      : null,
                 });
               }}
             />
@@ -191,10 +196,9 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
                 />
               </Field>
               <Field label="Expiration">
-                <input
-                  type="date"
+                <ExpirationPicker
                   value={leg.expiration}
-                  onChange={(e) => setLeg(i, { expiration: e.target.value })}
+                  onChange={(d) => setLeg(i, { expiration: d })}
                 />
               </Field>
             </div>
@@ -230,5 +234,62 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="label">{label}</span>
       <div className="[&>input]:w-full [&>select]:w-full [&>textarea]:w-full">{children}</div>
     </label>
+  );
+}
+
+function ExpirationPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (date: string) => void;
+}) {
+  function setDays(d: number) {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + d);
+    onChange(date.toISOString().slice(0, 10));
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = value ? new Date(value) : null;
+  const dte = target
+    ? Math.round((target.getTime() - today.getTime()) / 86_400_000)
+    : null;
+
+  const presets: Array<[string, number]> = [
+    ["Today", 0],
+    ["7D", 7],
+    ["14D", 14],
+    ["30D", 30],
+    ["60D", 60],
+  ];
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap gap-1">
+        {presets.map(([label, days]) => {
+          const active = dte === days;
+          return (
+            <button
+              type="button"
+              key={label}
+              onClick={() => setDays(days)}
+              className={`rounded-md border px-2 py-1 text-[11px] transition ${
+                active
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border hover:border-accent/40"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} />
+      {dte != null && dte >= 0 && (
+        <div className="text-[10px] muted">{dte === 0 ? "Expires today" : `${dte}d to expiry`}</div>
+      )}
+    </div>
   );
 }

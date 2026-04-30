@@ -53,15 +53,17 @@ export function Inspector({ greeks, stats, trade }: Props) {
 
       <div className="card card-tight">
         <div className="label mb-2">Stats</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <Row label="Cost" value={fmtUsd(stats.cost)} t={stats.cost >= 0 ? "" : "gain"} sub={stats.cost >= 0 ? "Debit" : "Credit"} />
-          <Row label="Max profit" value={fmtUsd(stats.maxProfit)} t={tone(stats.maxProfit)} />
-          <Row label="Max loss" value={fmtUsd(stats.maxLoss)} t={tone(stats.maxLoss)} />
-          <Row label="Margin (est)" value={fmtUsd(stats.marginEstimate)} />
-          <Row label="PoP" value={stats.pop != null ? `${(stats.pop * 100).toFixed(0)}%` : "—"} t={stats.pop != null && stats.pop > 0.5 ? "gain" : ""} />
-          <Row
+        <div className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+          <Cell label="Cost" value={fmtUsd(stats.cost)} t={stats.cost >= 0 ? "" : "gain"} sub={stats.cost >= 0 ? "Debit" : "Credit"} />
+          <Cell label="Max profit" value={fmtUsd(stats.maxProfit)} t={tone(stats.maxProfit)} />
+          <Cell label="Max loss" value={fmtUsd(stats.maxLoss)} t={tone(stats.maxLoss)} />
+          <Cell label="Margin (est)" value={fmtUsd(stats.marginEstimate)} />
+          <Cell label="PoP" value={stats.pop != null ? `${(stats.pop * 100).toFixed(0)}%` : "—"} t={stats.pop != null && stats.pop > 0.5 ? "gain" : ""} />
+          <Cell
             label="Breakevens"
-            value={stats.breakevens.length ? stats.breakevens.map((b) => `$${b}`).join(" · ") : "—"}
+            value={
+              stats.breakevens.length ? stats.breakevens.map((b) => `$${b}`).join(" · ") : "—"
+            }
           />
         </div>
       </div>
@@ -79,7 +81,7 @@ export function Inspector({ greeks, stats, trade }: Props) {
   );
 }
 
-function Row({
+function Cell({
   label,
   value,
   t,
@@ -91,12 +93,12 @@ function Row({
   sub?: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between">
-      <span className="text-xs muted">{label}</span>
-      <span className="text-right">
-        <span className={`kpi-sm ${t ?? ""}`}>{value}</span>
-        {sub && <span className="ml-1 text-[10px] muted">{sub}</span>}
+    <div className="min-w-0 flex flex-col">
+      <span className="text-[10px] uppercase tracking-wider muted">{label}</span>
+      <span className={`kpi-sm truncate ${t ?? ""}`} title={value}>
+        {value}
       </span>
+      {sub && <span className="text-[10px] muted">{sub}</span>}
     </div>
   );
 }

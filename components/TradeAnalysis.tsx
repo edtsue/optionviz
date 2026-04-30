@@ -47,7 +47,20 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
       mid: +totalPnL(filled, p.spot, targetDate).toFixed(2),
     }));
     const greeksAtTarget = netGreeks(filled, targetDate);
-    return { filled, strategy, stats, kpis, customSeries, dteAtTarget, greeksAtTarget };
+
+    // 1σ band at expiry from average leg IV (lognormal terminal price)
+    const T = yearsBetween(now, lastExpiry);
+    const ivs = filled.legs.map((l) => l.iv ?? 0.3);
+    const sigma = ivs.reduce((a, b) => a + b, 0) / Math.max(ivs.length, 1);
+    const oneSigmaBand: [number, number] | null =
+      T > 0 && sigma > 0
+        ? [
+            +(filled.underlyingPrice * Math.exp(-sigma * Math.sqrt(T))).toFixed(2),
+            +(filled.underlyingPrice * Math.exp(sigma * Math.sqrt(T))).toFixed(2),
+          ]
+        : null;
+
+    return { filled, strategy, stats, kpis, customSeries, dteAtTarget, greeksAtTarget, oneSigmaBand };
   }, [trade, ready, dayProgress]);
 
   if (!ready || !data) {
@@ -66,6 +79,7 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         underlying={data.filled.underlyingPrice}
         breakevens={data.stats.breakevens}
         midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
+        oneSigmaBand={data.oneSigmaBand}
       />
       <TimeSlider value={dayProgress} onChange={setDayProgress} dteAtTarget={data.dteAtTarget} />
       {data.kpis.length > 0 && (
