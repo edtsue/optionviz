@@ -6,20 +6,20 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const HoldingSchema = z.object({
-  symbol: z.string(),
+  symbol: z.string().nullish().transform((v) => v ?? ""),
   name: z.string().nullish(),
-  quantity: z.number(),
-  costBasis: z.number().nullish(),
-  marketPrice: z.number().nullish(),
-  marketValue: z.number().nullish(),
-  unrealizedPnL: z.number().nullish(),
-  unrealizedPnLPct: z.number().nullish(),
+  quantity: z.coerce.number().nullish().transform((v) => v ?? 0),
+  costBasis: z.coerce.number().nullish(),
+  marketPrice: z.coerce.number().nullish(),
+  marketValue: z.coerce.number().nullish(),
+  unrealizedPnL: z.coerce.number().nullish(),
+  unrealizedPnLPct: z.coerce.number().nullish(),
   assetType: z.enum(["stock", "etf", "option", "cash", "other"]).nullish(),
 });
 
 const PortfolioSchema = z.object({
-  totalValue: z.number().nullish(),
-  cashBalance: z.number().nullish(),
+  totalValue: z.coerce.number().nullish(),
+  cashBalance: z.coerce.number().nullish(),
   asOf: z.string().nullish(),
   holdings: z.array(HoldingSchema),
 });

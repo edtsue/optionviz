@@ -6,18 +6,19 @@ import { anthropic, VISION_MODEL } from "@/lib/claude";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// Lenient schema: accept whatever Claude can read, default the rest so the user can fill it in the form.
 const LegSchema = z.object({
   type: z.enum(["call", "put"]),
   side: z.enum(["long", "short"]),
-  strike: z.number(),
-  expiration: z.string(),
-  quantity: z.number().int().positive(),
-  premium: z.number(),
+  strike: z.coerce.number().nullish().transform((v) => v ?? 0),
+  expiration: z.string().nullish().transform((v) => v ?? ""),
+  quantity: z.coerce.number().int().nullish().transform((v) => (v && v > 0 ? v : 1)),
+  premium: z.coerce.number().nullish().transform((v) => v ?? 0),
 });
 
 const TicketSchema = z.object({
-  symbol: z.string(),
-  underlyingPrice: z.number(),
+  symbol: z.string().nullish().transform((v) => v ?? ""),
+  underlyingPrice: z.coerce.number().nullish().transform((v) => v ?? 0),
   legs: z.array(LegSchema).min(1),
   notes: z.string().nullish(),
 });
