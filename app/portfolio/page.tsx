@@ -25,6 +25,7 @@ export default function PortfolioPage() {
   const [hover, setHover] = useState(false);
   const [staged, setStaged] = useState<StagedImage | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [paneOpen, setPaneOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -251,9 +252,15 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* When we have a snapshot: 3-column horizontal layout */}
+      {/* When we have a snapshot: 2 or 3 column horizontal layout */}
       {snapshot && (
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div
+          className={`grid min-h-0 flex-1 gap-4 ${
+            paneOpen
+              ? "lg:grid-cols-[220px_minmax(0,1fr)_360px]"
+              : "lg:grid-cols-[220px_minmax(0,1fr)]"
+          }`}
+        >
           {/* Column 1: stats + reupload */}
           <div className="flex flex-col gap-3 overflow-y-auto">
             <div className="card card-tight space-y-2">
@@ -294,9 +301,19 @@ export default function PortfolioPage() {
 
           {/* Column 2: holdings list */}
           <div className="card card-flush flex min-h-0 flex-col overflow-hidden">
-            <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <div className="label">Holdings</div>
-              <div className="text-[10px] muted">click to inspect →</div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] muted">click to inspect →</span>
+                {!paneOpen && (
+                  <button
+                    onClick={() => setPaneOpen(true)}
+                    className="rounded-md border border-border px-2 py-0.5 text-[11px] hover:border-accent/50"
+                  >
+                    Show pane ‹
+                  </button>
+                )}
+              </div>
             </div>
             <div className="scroll-soft flex-1 overflow-y-auto">
               <table className="w-full text-sm data-grid">
@@ -304,6 +321,8 @@ export default function PortfolioPage() {
                   <tr>
                     <th className="px-3 py-2 text-left">Symbol</th>
                     <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-right">Price</th>
+                    <th className="px-3 py-2 text-right">Cost</th>
                     <th className="px-3 py-2 text-right">Value</th>
                     <th className="px-3 py-2 text-right">P/L</th>
                     <th className="px-3 py-2 text-right">%</th>
@@ -319,9 +338,10 @@ export default function PortfolioPage() {
                         h={h}
                         total={total}
                         active={h.symbol === selectedSymbol}
-                        onClick={() =>
-                          setSelectedSymbol((cur) => (cur === h.symbol ? null : h.symbol))
-                        }
+                        onClick={() => {
+                          setSelectedSymbol((cur) => (cur === h.symbol ? null : h.symbol));
+                          setPaneOpen(true);
+                        }}
                       />
                     ))}
                 </tbody>
@@ -329,7 +349,8 @@ export default function PortfolioPage() {
             </div>
           </div>
 
-          {/* Column 3: detail or analysis */}
+          {/* Column 3: detail or analysis (collapsible) */}
+          {paneOpen && (
           <div className="card card-flush flex min-h-0 flex-col overflow-hidden">
             {selectedHolding ? (
               <>
@@ -340,13 +361,25 @@ export default function PortfolioPage() {
                       <div className="text-[11px] muted">{selectedHolding.name}</div>
                     )}
                   </div>
-                  <button
-                    onClick={() => setSelectedSymbol(null)}
-                    className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent/50"
-                    aria-label="Close detail"
-                  >
-                    ×
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setSelectedSymbol(null)}
+                      className="rounded-md border border-border px-2 py-1 text-[11px] hover:border-accent/50"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedSymbol(null);
+                        setPaneOpen(false);
+                      }}
+                      className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent/50"
+                      aria-label="Close pane"
+                      title="Hide pane"
+                    >
+                      ›
+                    </button>
+                  </div>
                 </div>
                 <div className="scroll-soft flex-1 overflow-y-auto">
                   <HoldingDetail holding={selectedHolding} totalPortfolioValue={total} />
@@ -354,31 +387,50 @@ export default function PortfolioPage() {
               </>
             ) : analysis ? (
               <>
-                <div className="border-b border-border px-3 py-2">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
                   <div className="label">Analysis & ideas</div>
+                  <button
+                    onClick={() => setPaneOpen(false)}
+                    className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent/50"
+                    aria-label="Close pane"
+                    title="Hide pane"
+                  >
+                    ›
+                  </button>
                 </div>
                 <div className="scroll-soft flex-1 overflow-y-auto p-3">
                   <AnalysisView analysis={analysis} />
                 </div>
               </>
             ) : (
-              <div className="flex flex-1 items-center justify-center p-6 text-center">
-                <div>
-                  <div className="text-sm muted">
-                    Click a holding on the left to inspect it,
-                  </div>
-                  <div className="text-sm muted">or run analysis on the whole portfolio.</div>
+              <>
+                <div className="flex items-center justify-end border-b border-border px-3 py-2">
                   <button
-                    onClick={analyze}
-                    disabled={busyAnalyze}
-                    className="btn-primary mt-4 rounded-lg px-3 py-1.5 text-sm"
+                    onClick={() => setPaneOpen(false)}
+                    className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent/50"
                   >
-                    {busyAnalyze ? "Analyzing…" : "Analyze with Claude"}
+                    ›
                   </button>
                 </div>
-              </div>
+                <div className="flex flex-1 items-center justify-center p-6 text-center">
+                  <div>
+                    <div className="text-sm muted">
+                      Click a holding on the left to inspect it,
+                    </div>
+                    <div className="text-sm muted">or run analysis on the whole portfolio.</div>
+                    <button
+                      onClick={analyze}
+                      disabled={busyAnalyze}
+                      className="btn-primary mt-4 rounded-lg px-3 py-1.5 text-sm"
+                    >
+                      {busyAnalyze ? "Analyzing…" : "Analyze with Claude"}
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
+          )}
         </div>
       )}
     </div>
@@ -414,6 +466,12 @@ function HoldingRow({
         )}
       </td>
       <td className="px-3 py-2 text-right">{h.quantity}</td>
+      <td className="px-3 py-2 text-right">
+        {h.marketPrice != null ? `$${h.marketPrice.toFixed(2)}` : "—"}
+      </td>
+      <td className="px-3 py-2 text-right">
+        {h.costBasis != null ? `$${h.costBasis.toFixed(2)}` : "—"}
+      </td>
       <td className="px-3 py-2 text-right">
         {h.marketValue != null ? `$${h.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
       </td>
