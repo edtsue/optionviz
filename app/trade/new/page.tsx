@@ -149,7 +149,7 @@ function NewTradeInner() {
   }
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="p-4">
       <ResizableSplit
         id="new-trade-form-analysis"
         fixedSide="start"
