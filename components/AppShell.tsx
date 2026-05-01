@@ -73,7 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Desktop sidebar */}
-        <div className="hidden h-screen w-60 shrink-0 border-r border-border md:sticky md:top-0 md:flex">
+        <div className="hidden h-screen w-52 shrink-0 border-r border-border md:sticky md:top-0 md:flex">
           <Sidebar />
         </div>
 
