@@ -4,29 +4,24 @@ import { anthropic, REASONING_MODEL } from "@/lib/claude";
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const SYSTEM_WEB = `You are a markets news synthesizer. Use the web_search tool to find news from the past 24 hours about each ticker. Be terse.
+const SYSTEM_WEB = `You are a markets news synthesizer. Use web_search to find news from the past 24 hours per ticker.
 
-For each ticker, list news items that could move the option: earnings results or guidance, analyst upgrades/downgrades with material price-target moves, FDA decisions, macro shocks affecting the name, M&A, regulatory probes, lawsuits, exec departures, product launches that materially shift expectations.
+STRICT LIMITS (to stay under token budget):
+- MAX 2 items per ticker. Pick the 2 most material.
+- ONLY return "high" or "medium" importance items. Drop "low".
+- headline: ≤ 90 chars
+- summary: ≤ 110 chars, 1 sentence
+- impact: ≤ 90 chars, 1 sentence on why it matters for IV / direction
+- Skip tickers with no qualifying news.
 
-Skip:
-- Rumors and low-substance "X stock could move on…" pieces
-- Routine analyst notes that don't change the price target
-- Generic sector commentary not naming the ticker
+Qualify as news (else skip): earnings results / guidance, regulator action, M&A, downgrade/upgrade with material PT move, FDA, lawsuits with real exposure, exec departures, product events that change expectations.
 
-For each item:
-- headline: 1 line
-- summary: 1 short sentence
-- impact: 1 short sentence — why it matters for IV / directional bias
-- importance: "high" | "medium" | "low"
-- source: domain (bloomberg.com, reuters.com, cnbc.com, ft.com, wsj.com, etc.)
-- url: link if known, else null
+Skip: rumors, generic sector pieces, routine analyst notes, "stock could move on…" filler.
 
-Mark importance "high" ONLY for: earnings beat/miss, formal guidance change, downgrade/upgrade with >5% price-target move, regulator/SEC action, M&A involving the ticker, exec departure, criminal probe, lawsuit with material exposure.
+Mark "high" ONLY for: earnings beat/miss, formal guidance change, regulator/SEC action, M&A, exec departure, material lawsuit, large PT moves (>10%).
 
-Skip tickers with no relevant news in the last 24h. Don't fabricate.
-
-Return ONLY JSON, no markdown:
-{ "items": [ { "ticker": "AAPL", "items": [ { "headline": "...", "summary": "...", "impact": "...", "importance": "high|medium|low", "source": "...", "url": "..." | null } ] } ] }`;
+Output format (no markdown, no prose, JSON only):
+{"items":[{"ticker":"AAPL","items":[{"headline":"…","summary":"…","impact":"…","importance":"high|medium","source":"domain.com","url":"…"|null}]}]}`;
 
 const SYSTEM_FALLBACK = `You are a markets analyst. The web_search tool isn't available, so you can't fetch live news. Instead, for each ticker, list any KNOWN scheduled catalysts within the next 7 days (from your training data) that the user should be aware of: scheduled earnings dates, ex-dividend dates, FDA PDUFA dates, FOMC, analyst day events, lockup expirations.
 
@@ -66,16 +61,57 @@ function describeError(err: unknown): { message: string; status?: number } {
 async function callClaude(systemPrompt: string, useWebSearch: boolean, content: string) {
   const params: Record<string, unknown> = {
     model: REASONING_MODEL,
-    max_tokens: 3000,
+    max_tokens: 4500, // tight prompt + 4500 tokens leaves comfortable headroom
     system: systemPrompt,
     messages: [{ role: "user", content }],
   };
   if (useWebSearch) {
-    params.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+    params.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }];
   }
   // SDK doesn't type web_search; cast through unknown
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return await anthropic().messages.create(params as any);
+}
+
+function tryStrictParse(raw: string): unknown | null {
+  try {
+    return JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    return null;
+  }
+}
+
+// Repair a JSON string that was truncated mid-content (typical when the model
+// hits max_tokens). We chip characters off the end until JSON.parse accepts it,
+// padding with the structural closers as needed.
+function tryRepairJson(raw: string): unknown | null {
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  // First try as-is.
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+
+  // Walk back to the last complete '}' or ']' and try closing brackets.
+  for (let i = cleaned.length - 1; i > 0; i--) {
+    const ch = cleaned[i];
+    if (ch !== "}" && ch !== "]") continue;
+    let candidate = cleaned.slice(0, i + 1);
+    // Auto-balance any unclosed brackets on the trailing side.
+    const opens = (candidate.match(/[{[]/g) ?? []).length;
+    const closes = (candidate.match(/[}\]]/g) ?? []).length;
+    if (opens > closes) {
+      // Try padding with missing closers
+      candidate += "]".repeat(Math.max(0, opens - closes));
+    }
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+    // Try adding "}]}" to close common shape { "items": [ { "items": [ ...
+    try {
+      return JSON.parse(cleaned.slice(0, i + 1) + '"}]}]}');
+    } catch {}
+  }
+  return null;
 }
 
 function extractText(resp: { content?: ContentBlock[] }): string {
@@ -91,8 +127,8 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(tickers) || tickers.length === 0) {
       return NextResponse.json({ error: "tickers required" }, { status: 400 });
     }
-    const limited = tickers.slice(0, 10);
-    const userMsg = `Tickers: ${limited.join(", ")}\n\nReturn JSON.`;
+    const limited = tickers.slice(0, 8);
+    const userMsg = `Tickers: ${limited.join(", ")}. JSON only.`;
 
     let resp: { content?: ContentBlock[] };
     let usedFallback = false;
@@ -128,21 +164,21 @@ export async function POST(req: NextRequest) {
     }
 
     const text = extractText(resp);
-    const cleaned = text.replace(/```json|```/g, "").trim();
-    let parsed: { items?: unknown } = {};
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (e) {
-      console.error("[today] JSON parse error:", e, "raw:", text.slice(0, 500));
+    const repaired = tryRepairJson(text);
+    if (repaired == null) {
+      console.error("[today] JSON parse failed even after repair. Raw head:", text.slice(0, 500));
       return NextResponse.json(
-        { error: "Could not parse response from Claude", raw: text.slice(0, 1000) },
+        { error: "Couldn't parse Claude's response (likely truncated). Try again with fewer tickers." },
         { status: 500 },
       );
     }
+    const parsed = repaired as { items?: unknown };
+    const truncated = repaired !== null && tryStrictParse(text) === null;
     return NextResponse.json({
       items: Array.isArray(parsed.items) ? parsed.items : [],
       asOf: new Date().toISOString(),
       fallback: usedFallback,
+      truncated,
     });
   } catch (err) {
     console.error("[today] failed:", err);

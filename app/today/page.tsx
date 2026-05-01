@@ -19,6 +19,7 @@ interface NewsResponse {
   items: TickerNews[];
   asOf?: string;
   fallback?: boolean;
+  truncated?: boolean;
 }
 
 const CACHE_KEY = "optionviz.today.v1";
@@ -212,6 +213,11 @@ export default function TodayPage() {
                 console.anthropic.com/settings/limits
               </a>{" "}
               for live news.
+            </div>
+          )}
+          {news.truncated && (
+            <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
+              Some content was trimmed to fit the response. Try fewer tickers if you want more detail per name.
             </div>
           )}
           <div className="card card-tight">
