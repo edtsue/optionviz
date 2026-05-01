@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { ChatLauncher } from "./ChatLauncher";
@@ -40,10 +40,65 @@ function themeFor(pathname: string | null): Theme {
   return TRADE;
 }
 
+const SIDEBAR_KEY = "optionviz.sidebar-width";
+const SIDEBAR_DEFAULT = 208; // w-52
+const SIDEBAR_MIN = 160;
+const SIDEBAR_MAX = 400;
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const dragRef = useRef<{ x: number; w: number } | null>(null);
   const pathname = usePathname();
   const theme = themeFor(pathname);
+
+  // Load persisted width
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SIDEBAR_KEY);
+      if (raw) {
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n)) setSidebarWidth(clamp(n, SIDEBAR_MIN, SIDEBAR_MAX));
+      }
+    } catch {}
+  }, []);
+
+  const onMove = useCallback((e: MouseEvent) => {
+    if (!dragRef.current) return;
+    const next = clamp(dragRef.current.w + (e.clientX - dragRef.current.x), SIDEBAR_MIN, SIDEBAR_MAX);
+    setSidebarWidth(next);
+  }, []);
+
+  const onUp = useCallback(() => {
+    dragRef.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  }, [onMove]);
+
+  // Persist after width settles
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, String(Math.round(sidebarWidth)));
+      } catch {}
+    }, 200);
+    return () => clearTimeout(t);
+  }, [sidebarWidth]);
+
+  function onDown(e: React.MouseEvent) {
+    e.preventDefault();
+    dragRef.current = { x: e.clientX, w: sidebarWidth };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
 
   const themeStyle = {
     "--accent": theme.accent,
@@ -80,9 +135,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* Desktop sidebar */}
-        <div className="hidden h-screen w-52 shrink-0 border-r border-border md:sticky md:top-0 md:flex">
+        {/* Desktop sidebar — resizable */}
+        <div
+          className="hidden h-screen shrink-0 md:sticky md:top-0 md:flex"
+          style={{ width: sidebarWidth }}
+        >
           <Sidebar />
+        </div>
+
+        {/* Drag handle (desktop only) */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onMouseDown={onDown}
+          onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+          title="Drag to resize · double-click to reset"
+          className="group hidden shrink-0 cursor-col-resize md:sticky md:top-0 md:flex md:h-screen md:w-1.5 md:items-center md:justify-center"
+        >
+          <div className="h-full w-px bg-border transition group-hover:bg-accent/60" />
         </div>
 
         <main className="min-w-0 flex-1 pt-12 pb-20 md:pt-0 md:pb-20">{children}</main>
