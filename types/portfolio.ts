@@ -8,6 +8,10 @@ export interface Holding {
   unrealizedPnL?: number | null;
   unrealizedPnLPct?: number | null;
   assetType?: "stock" | "etf" | "option" | "cash" | "other" | null;
+  /** Broker-reported implied volatility (e.g. 41.08 means 41.08%) */
+  iv?: number | null;
+  /** Broker-reported per-share delta (long convention, decimal) */
+  delta?: number | null;
 }
 
 export interface PortfolioSnapshot {

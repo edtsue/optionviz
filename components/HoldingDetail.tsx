@@ -104,8 +104,15 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
           ? String(holding.marketPrice)
           : "",
     );
-    setIvInput(savedOverride.ivPct != null ? String(savedOverride.ivPct) : "");
-  }, [isOption, parsed, overrideKey, holding.marketPrice]);
+    // IV: user override > broker-parsed IV > blank (auto-solve)
+    setIvInput(
+      savedOverride.ivPct != null
+        ? String(savedOverride.ivPct)
+        : holding.iv != null
+          ? String(holding.iv)
+          : "",
+    );
+  }, [isOption, parsed, overrideKey, holding.marketPrice, holding.iv]);
 
   const spot = parseFloat(spotInput);
   const validSpot = Number.isFinite(spot) && spot > 0;
@@ -114,7 +121,8 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
   const ivOverridePct = parseFloat(ivInput);
   const hasIvOverride = Number.isFinite(ivOverridePct) && ivOverridePct > 0;
 
-  // Solve IV from option market price + user's spot, scale Greeks by qty
+  // Solve IV from option market price + user's spot, scale Greeks by qty.
+  // Prefer broker-parsed delta when shown (most accurate single number).
   const greeksData = useMemo(() => {
     if (!isOption || !parsed) return null;
     const T = yearsBetween(new Date(), new Date(parsed.expiration));
@@ -124,11 +132,11 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
     const r = 0.045;
 
     let sigma: number | null = null;
-    let ivSource: "override" | "solved" | "default" = "default";
+    let ivSource: "override" | "solved" | "broker" | "default" = "default";
 
     if (hasIvOverride) {
       sigma = ivOverridePct / 100;
-      ivSource = "override";
+      ivSource = holding.iv != null && Math.abs(ivOverridePct - holding.iv) < 0.01 ? "broker" : "override";
     } else if (validPremium) {
       const solved = impliedVol(premium, spot, parsed.strike, T, r, parsed.type);
       if (solved != null && solved > 0.01 && solved < 5) {
@@ -144,6 +152,14 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
     const sideSign = (holding.quantity ?? 0) < 0 ? -1 : 1;
     const positionMult = qty * sideSign;
 
+    // If the broker shipped a per-share delta in the screenshot, prefer it.
+    // Long-convention decimal × side × qty = position delta.
+    const brokerDelta = holding.delta;
+    const useBrokerDelta = brokerDelta != null && Number.isFinite(brokerDelta);
+    const positionDelta = useBrokerDelta
+      ? brokerDelta * positionMult
+      : g.delta * positionMult;
+
     return {
       ready: true as const,
       parsed,
@@ -152,7 +168,7 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
       ivSource,
       perShare: g,
       position: {
-        delta: g.delta * positionMult,
+        delta: positionDelta,
         gamma: g.gamma * positionMult,
         theta: g.theta * positionMult * 100,
         vega: g.vega * positionMult * 100,
@@ -160,8 +176,9 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
       },
       qty,
       sideSign,
+      deltaSource: useBrokerDelta ? ("broker" as const) : ("computed" as const),
     };
-  }, [isOption, parsed, validSpot, spot, validPremium, premium, hasIvOverride, ivOverridePct, holding.quantity]);
+  }, [isOption, parsed, validSpot, spot, validPremium, premium, hasIvOverride, ivOverridePct, holding.quantity, holding.iv, holding.delta]);
 
   function startCoveredCall() {
     const params = new URLSearchParams({
@@ -299,11 +316,15 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
           {greeksData && greeksData.ready ? (
             <>
               <div className="text-[11px] muted">
-                {greeksData.ivSource === "override"
-                  ? `IV (you set): ${(greeksData.sigma * 100).toFixed(1)}%`
-                  : greeksData.ivSource === "solved"
-                    ? `IV (back-solved from $${premium.toFixed(2)} premium): ${(greeksData.sigma * 100).toFixed(1)}%`
-                    : `IV (assumed): ${(greeksData.sigma * 100).toFixed(1)}%`}
+                {greeksData.ivSource === "broker"
+                  ? `IV (from broker): ${(greeksData.sigma * 100).toFixed(2)}%`
+                  : greeksData.ivSource === "override"
+                    ? `IV (you set): ${(greeksData.sigma * 100).toFixed(1)}%`
+                    : greeksData.ivSource === "solved"
+                      ? `IV (back-solved from $${premium.toFixed(2)} premium): ${(greeksData.sigma * 100).toFixed(1)}%`
+                      : `IV (assumed): ${(greeksData.sigma * 100).toFixed(1)}%`}
+                {" · "}
+                Δ {greeksData.deltaSource === "broker" ? "from broker" : "computed"}
                 {" · "}
                 {greeksData.qty} contract{greeksData.qty === 1 ? "" : "s"}
                 {greeksData.sideSign < 0 ? " short" : " long"}
