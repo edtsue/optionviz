@@ -20,6 +20,7 @@ interface NewsResponse {
   asOf?: string;
   fallback?: boolean;
   truncated?: boolean;
+  partial?: boolean;
 }
 
 const CACHE_KEY = "optionviz.today.v1";
@@ -218,6 +219,11 @@ export default function TodayPage() {
           {news.truncated && (
             <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
               Some content was trimmed to fit the response. Try fewer tickers if you want more detail per name.
+            </div>
+          )}
+          {news.partial && (
+            <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
+              Some tickers couldn&rsquo;t be processed in this run. Refresh news to retry the missing ones.
             </div>
           )}
           <div className="card card-tight">

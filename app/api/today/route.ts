@@ -4,57 +4,55 @@ import { anthropic, REASONING_MODEL } from "@/lib/claude";
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const SYSTEM_WEB = `You are a markets news synthesizer. Use web_search to find the SINGLE most important recent story (last 7 days, prefer last 24h) for EACH ticker the user provides. Return exactly one item per ticker.
+const SYSTEM_WEB = `You synthesize markets news. For each ticker, use web_search to find the SINGLE most important story (last 7 days, prefer last 24h). Return EXACTLY ONE item per ticker.
 
-STRICT LIMITS:
-- EXACTLY 1 item per ticker. Always return one even if news is light — pick the most relevant story you can find for that name.
-- Return every ticker the user listed; do not skip any.
-- headline: ≤ 90 chars
-- summary: ≤ 110 chars, 1 sentence
-- impact: ≤ 90 chars, 1 sentence on why it matters for IV / direction
+Hard caps:
+- 1 item per ticker. Always include every ticker the user lists.
+- headline ≤ 80 chars · summary ≤ 100 chars · impact ≤ 80 chars
 - importance: "high" | "medium" | "low"
+- source: domain only (e.g. "reuters.com")
 
-Importance rubric:
-- "high": earnings beat/miss, formal guidance change, regulator/SEC action, M&A, exec departure, material lawsuit, PT moves >10%, FDA approval/CRL.
-- "medium": notable analyst note, smaller PT change, sector-wide move that materially affects this name, product launch, partnership.
-- "low": general commentary, routine note, broad market context only.
+Importance:
+- "high": earnings beat/miss, formal guidance change, regulator/SEC action, M&A, exec departure, material lawsuit, PT moves >10%, FDA action.
+- "medium": notable analyst note, smaller PT change, sector move that materially affects this name, product launch, partnership.
+- "low": no real news; brief context only.
 
-Don't fabricate. If you genuinely can't find anything, set headline = "No notable news" and importance = "low" with a 1-sentence summary of any recent context.
+If genuinely no news: headline "No notable news", importance "low", summary = brief context.
 
-Output format (no markdown, no prose, JSON only):
-{"items":[{"ticker":"AAPL","items":[{"headline":"…","summary":"…","impact":"…","importance":"high|medium|low","source":"domain.com","url":"…"|null}]}]}`;
+Output JSON ONLY:
+{"items":[{"ticker":"AAPL","items":[{"headline":"…","summary":"…","impact":"…","importance":"high|medium|low","source":"…","url":null}]}]}`;
 
-const SYSTEM_FALLBACK = `You are a markets analyst. The web_search tool isn't available, so you can't fetch live news. Instead, for each ticker, list any KNOWN scheduled catalysts within the next 7 days (from your training data) that the user should be aware of: scheduled earnings dates, ex-dividend dates, FDA PDUFA dates, FOMC, analyst day events, lockup expirations.
+const SYSTEM_FALLBACK = `For each ticker, list the SINGLE most material upcoming or recent catalyst from your training data (earnings, ex-div, FDA, product event, FOMC). One item per ticker. Hard caps: headline ≤ 80, summary ≤ 100, impact ≤ 80. importance: "high" | "medium" | "low". source: "knowledge cutoff". url: null. If unknown, headline="No known catalyst", low importance.
 
-Be honest about uncertainty: skip tickers where you don't know upcoming events. Don't fabricate news headlines.
-
-For each item:
-- headline: short title (e.g. "Earnings expected Q2")
-- summary: 1 sentence on the event
-- impact: 1 sentence on why it matters
-- importance: "high" | "medium" | "low"
-- source: "knowledge cutoff" (since this is from training, not live)
-- url: null
-
-Return ONLY JSON, no markdown:
-{ "items": [ { "ticker": "AAPL", "items": [ {...} ] } ], "fallback": true }`;
+Output JSON ONLY: {"items":[{"ticker":"AAPL","items":[{"headline":"…","summary":"…","impact":"…","importance":"…","source":"knowledge cutoff","url":null}]}], "fallback":true}`;
 
 interface Body {
   tickers: string[];
 }
-
 interface ContentBlock {
   type: string;
   text?: string;
 }
+interface NewsItem {
+  headline: string;
+  summary: string;
+  impact: string;
+  importance: "high" | "medium" | "low";
+  source?: string | null;
+  url?: string | null;
+}
+interface TickerNews {
+  ticker: string;
+  items: NewsItem[];
+}
+
+const CHUNK_SIZE = 4; // tickers per Anthropic call
+const MAX_CHUNKS = 4; // hard cap to keep cost bounded (16 tickers max)
 
 function describeError(err: unknown): { message: string; status?: number } {
-  // Anthropic SDK errors have .status and .message
   if (err && typeof err === "object") {
-    const e = err as { status?: number; message?: string; error?: { message?: string }; type?: string };
-    const innerMsg = e.error?.message;
-    const message = innerMsg ?? e.message ?? "Unknown error";
-    return { message, status: e.status };
+    const e = err as { status?: number; message?: string; error?: { message?: string } };
+    return { message: e.error?.message ?? e.message ?? "Unknown", status: e.status };
   }
   return { message: String(err) };
 }
@@ -62,57 +60,15 @@ function describeError(err: unknown): { message: string; status?: number } {
 async function callClaude(systemPrompt: string, useWebSearch: boolean, content: string) {
   const params: Record<string, unknown> = {
     model: REASONING_MODEL,
-    max_tokens: 4500, // tight prompt + 4500 tokens leaves comfortable headroom
+    max_tokens: 3000,
     system: systemPrompt,
     messages: [{ role: "user", content }],
   };
   if (useWebSearch) {
-    params.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }];
+    params.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }];
   }
-  // SDK doesn't type web_search; cast through unknown
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return await anthropic().messages.create(params as any);
-}
-
-function tryStrictParse(raw: string): unknown | null {
-  try {
-    return JSON.parse(raw.replace(/```json|```/g, "").trim());
-  } catch {
-    return null;
-  }
-}
-
-// Repair a JSON string that was truncated mid-content (typical when the model
-// hits max_tokens). We chip characters off the end until JSON.parse accepts it,
-// padding with the structural closers as needed.
-function tryRepairJson(raw: string): unknown | null {
-  const cleaned = raw.replace(/```json|```/g, "").trim();
-  // First try as-is.
-  try {
-    return JSON.parse(cleaned);
-  } catch {}
-
-  // Walk back to the last complete '}' or ']' and try closing brackets.
-  for (let i = cleaned.length - 1; i > 0; i--) {
-    const ch = cleaned[i];
-    if (ch !== "}" && ch !== "]") continue;
-    let candidate = cleaned.slice(0, i + 1);
-    // Auto-balance any unclosed brackets on the trailing side.
-    const opens = (candidate.match(/[{[]/g) ?? []).length;
-    const closes = (candidate.match(/[}\]]/g) ?? []).length;
-    if (opens > closes) {
-      // Try padding with missing closers
-      candidate += "]".repeat(Math.max(0, opens - closes));
-    }
-    try {
-      return JSON.parse(candidate);
-    } catch {}
-    // Try adding "}]}" to close common shape { "items": [ { "items": [ ...
-    try {
-      return JSON.parse(cleaned.slice(0, i + 1) + '"}]}]}');
-    } catch {}
-  }
-  return null;
 }
 
 function extractText(resp: { content?: ContentBlock[] }): string {
@@ -122,64 +78,117 @@ function extractText(resp: { content?: ContentBlock[] }): string {
     .join("\n");
 }
 
+function tryParse(raw: string): unknown | null {
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // chip from end
+    for (let i = cleaned.length - 1; i > 100; i--) {
+      const ch = cleaned[i];
+      if (ch !== "}" && ch !== "]") continue;
+      const candidate = cleaned.slice(0, i + 1);
+      const opens = (candidate.match(/[{[]/g) ?? []).length;
+      const closes = (candidate.match(/[}\]]/g) ?? []).length;
+      if (opens > closes) {
+        const closersNeeded = opens - closes;
+        try {
+          return JSON.parse(candidate + "]}".repeat(Math.ceil(closersNeeded / 2)));
+        } catch {}
+        try {
+          return JSON.parse(candidate + "}]}".repeat(closersNeeded));
+        } catch {}
+      } else {
+        try {
+          return JSON.parse(candidate);
+        } catch {}
+      }
+    }
+    return null;
+  }
+}
+
+async function searchChunk(tickers: string[], useWebSearch: boolean): Promise<{
+  items: TickerNews[];
+  usedFallback: boolean;
+  error?: string;
+}> {
+  const userMsg = `Tickers: ${tickers.join(", ")}. JSON only.`;
+  let resp: { content?: ContentBlock[] };
+  let usedFallback = false;
+  try {
+    resp = await callClaude(useWebSearch ? SYSTEM_WEB : SYSTEM_FALLBACK, useWebSearch, userMsg);
+  } catch (err) {
+    const e = describeError(err);
+    if (useWebSearch && (/web_search|tool|invalid_request|400/i.test(e.message) || e.status === 400)) {
+      console.warn("[today] retrying chunk without web_search:", e.message);
+      try {
+        resp = await callClaude(SYSTEM_FALLBACK, false, userMsg);
+        usedFallback = true;
+      } catch (err2) {
+        return { items: [], usedFallback: false, error: describeError(err2).message };
+      }
+    } else {
+      return { items: [], usedFallback: false, error: e.message };
+    }
+  }
+  const text = extractText(resp);
+  const parsed = tryParse(text) as { items?: TickerNews[] } | null;
+  if (!parsed) {
+    console.error("[today] chunk parse failed. Raw head:", text.slice(0, 500));
+    return { items: [], usedFallback, error: "parse failed" };
+  }
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  return { items, usedFallback };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { tickers } = (await req.json()) as Body;
     if (!Array.isArray(tickers) || tickers.length === 0) {
       return NextResponse.json({ error: "tickers required" }, { status: 400 });
     }
-    const limited = tickers.slice(0, 8);
-    const userMsg = `Tickers: ${limited.join(", ")}. JSON only.`;
+    const limited = tickers.slice(0, CHUNK_SIZE * MAX_CHUNKS);
+    const chunks: string[][] = [];
+    for (let i = 0; i < limited.length; i += CHUNK_SIZE) {
+      chunks.push(limited.slice(i, i + CHUNK_SIZE));
+    }
 
-    let resp: { content?: ContentBlock[] };
-    let usedFallback = false;
+    const results = await Promise.allSettled(chunks.map((c) => searchChunk(c, true)));
 
-    try {
-      resp = await callClaude(SYSTEM_WEB, true, userMsg);
-    } catch (webErr) {
-      const e = describeError(webErr);
-      console.error("[today] web_search call failed:", e.message, "status:", e.status);
-      // If the failure looks tool-related (most common: account doesn't have
-      // web_search enabled), fall back to a no-tools call that surfaces
-      // scheduled catalysts from training data.
-      const looksToolRelated =
-        /web_search|tool|not.+enabled|not.+supported|invalid_request|400/i.test(e.message) ||
-        e.status === 400;
-      if (!looksToolRelated) {
-        return NextResponse.json(
-          { error: `Anthropic call failed: ${e.message}` },
-          { status: 500 },
-        );
-      }
-      console.warn("[today] retrying without web_search tool");
-      try {
-        resp = await callClaude(SYSTEM_FALLBACK, false, userMsg);
-        usedFallback = true;
-      } catch (fallbackErr) {
-        const f = describeError(fallbackErr);
-        return NextResponse.json(
-          { error: `Anthropic call failed (fallback): ${f.message}` },
-          { status: 500 },
-        );
+    const allItems: TickerNews[] = [];
+    let anyFallback = false;
+    const errors: string[] = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        allItems.push(...r.value.items);
+        if (r.value.usedFallback) anyFallback = true;
+        if (r.value.error) errors.push(r.value.error);
+      } else {
+        errors.push(describeError(r.reason).message);
       }
     }
 
-    const text = extractText(resp);
-    const repaired = tryRepairJson(text);
-    if (repaired == null) {
-      console.error("[today] JSON parse failed even after repair. Raw head:", text.slice(0, 500));
+    if (allItems.length === 0) {
       return NextResponse.json(
-        { error: "Couldn't parse Claude's response (likely truncated). Try again with fewer tickers." },
+        { error: errors[0] ?? "No items returned" },
         { status: 500 },
       );
     }
-    const parsed = repaired as { items?: unknown };
-    const truncated = repaired !== null && tryStrictParse(text) === null;
+
+    // Preserve user-requested ordering
+    const order = new Map(limited.map((t, i) => [t.toUpperCase(), i]));
+    allItems.sort(
+      (a, b) =>
+        (order.get(a.ticker.toUpperCase()) ?? 999) -
+        (order.get(b.ticker.toUpperCase()) ?? 999),
+    );
+
     return NextResponse.json({
-      items: Array.isArray(parsed.items) ? parsed.items : [],
+      items: allItems,
       asOf: new Date().toISOString(),
-      fallback: usedFallback,
-      truncated,
+      fallback: anyFallback,
+      partial: errors.length > 0 && allItems.length > 0,
     });
   } catch (err) {
     console.error("[today] failed:", err);
