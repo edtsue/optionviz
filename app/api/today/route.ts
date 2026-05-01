@@ -4,24 +4,25 @@ import { anthropic, REASONING_MODEL } from "@/lib/claude";
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const SYSTEM_WEB = `You are a markets news synthesizer. Use web_search to find news from the past 24 hours per ticker.
+const SYSTEM_WEB = `You are a markets news synthesizer. Use web_search to find the SINGLE most important recent story (last 7 days, prefer last 24h) for EACH ticker the user provides. Return exactly one item per ticker.
 
-STRICT LIMITS (to stay under token budget):
-- MAX 2 items per ticker. Pick the 2 most material.
-- ONLY return "high" or "medium" importance items. Drop "low".
+STRICT LIMITS:
+- EXACTLY 1 item per ticker. Always return one even if news is light — pick the most relevant story you can find for that name.
+- Return every ticker the user listed; do not skip any.
 - headline: ≤ 90 chars
 - summary: ≤ 110 chars, 1 sentence
 - impact: ≤ 90 chars, 1 sentence on why it matters for IV / direction
-- Skip tickers with no qualifying news.
+- importance: "high" | "medium" | "low"
 
-Qualify as news (else skip): earnings results / guidance, regulator action, M&A, downgrade/upgrade with material PT move, FDA, lawsuits with real exposure, exec departures, product events that change expectations.
+Importance rubric:
+- "high": earnings beat/miss, formal guidance change, regulator/SEC action, M&A, exec departure, material lawsuit, PT moves >10%, FDA approval/CRL.
+- "medium": notable analyst note, smaller PT change, sector-wide move that materially affects this name, product launch, partnership.
+- "low": general commentary, routine note, broad market context only.
 
-Skip: rumors, generic sector pieces, routine analyst notes, "stock could move on…" filler.
-
-Mark "high" ONLY for: earnings beat/miss, formal guidance change, regulator/SEC action, M&A, exec departure, material lawsuit, large PT moves (>10%).
+Don't fabricate. If you genuinely can't find anything, set headline = "No notable news" and importance = "low" with a 1-sentence summary of any recent context.
 
 Output format (no markdown, no prose, JSON only):
-{"items":[{"ticker":"AAPL","items":[{"headline":"…","summary":"…","impact":"…","importance":"high|medium","source":"domain.com","url":"…"|null}]}]}`;
+{"items":[{"ticker":"AAPL","items":[{"headline":"…","summary":"…","impact":"…","importance":"high|medium|low","source":"domain.com","url":"…"|null}]}]}`;
 
 const SYSTEM_FALLBACK = `You are a markets analyst. The web_search tool isn't available, so you can't fetch live news. Instead, for each ticker, list any KNOWN scheduled catalysts within the next 7 days (from your training data) that the user should be aware of: scheduled earnings dates, ex-dividend dates, FDA PDUFA dates, FOMC, analyst day events, lockup expirations.
 
