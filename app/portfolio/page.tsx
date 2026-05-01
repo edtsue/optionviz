@@ -84,7 +84,11 @@ export default function PortfolioPage() {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error ?? `Parse failed (${res.status})`);
       }
-      const parsed = (await res.json()) as PortfolioSnapshot;
+      const parsedRaw = (await res.json()) as PortfolioSnapshot;
+      const parsed: PortfolioSnapshot = {
+        ...parsedRaw,
+        uploadedAt: new Date().toISOString(),
+      };
       setSnapshot(parsed);
       setAnalysis(null);
       setStaged(null);
@@ -306,7 +310,12 @@ export default function PortfolioPage() {
               <Stat label="Total value" value={`$${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
               <Stat label="Cash" value={snapshot.cashBalance != null ? `$${snapshot.cashBalance.toLocaleString()}` : "—"} />
               <Stat label="Holdings" value={`${snapshot.holdings.length}`} />
-              <Stat label="As of" value={snapshot.asOf ?? "—"} />
+              {snapshot.asOf && <Stat label="Broker as of" value={snapshot.asOf} />}
+              <Stat
+                label="Uploaded"
+                value={snapshot.uploadedAt ? formatRelative(snapshot.uploadedAt) : "—"}
+                title={snapshot.uploadedAt ? new Date(snapshot.uploadedAt).toLocaleString() : undefined}
+              />
             </div>
 
             <div className="card card-tight">
@@ -713,13 +722,29 @@ function AnalysisView({ analysis }: { analysis: PortfolioAnalysis }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="flex items-baseline justify-between">
+    <div className="flex items-baseline justify-between" title={title}>
       <span className="text-xs muted">{label}</span>
       <span className="kpi-sm">{value}</span>
     </div>
   );
+}
+
+function formatRelative(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "—";
+  const diff = Date.now() - t;
+  const sec = Math.round(diff / 1000);
+  if (sec < 30) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(t).toLocaleDateString();
 }
 
 function Block({ title, body }: { title: string; body: string }) {

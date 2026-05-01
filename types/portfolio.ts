@@ -12,12 +12,19 @@ export interface Holding {
   iv?: number | null;
   /** Broker-reported per-share delta (long convention, decimal) */
   delta?: number | null;
+  /** Any additional broker columns the parser captured. Keys are the column
+   * labels as shown by the broker (e.g. "Bid", "Day Change %"); values are
+   * primitives. */
+  extras?: Record<string, string | number | null> | null;
 }
 
 export interface PortfolioSnapshot {
   totalValue?: number | null;
   cashBalance?: number | null;
+  /** Broker-reported "as of" date from the screenshot, if visible. */
   asOf?: string | null;
+  /** ISO timestamp of when the user uploaded this screenshot. */
+  uploadedAt?: string | null;
   holdings: Holding[];
 }
 

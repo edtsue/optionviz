@@ -355,6 +355,24 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
         </div>
       )}
 
+      {holding.extras && Object.keys(holding.extras).length > 0 && (
+        <div className="rounded-lg border border-border p-3">
+          <div className="label mb-2">From screenshot</div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 data-grid">
+            {Object.entries(holding.extras).map(([k, v]) => (
+              <div key={k} className="min-w-0">
+                <div className="text-[10px] uppercase tracking-wider muted truncate" title={k}>
+                  {k}
+                </div>
+                <div className="font-mono text-sm font-semibold tabular-nums truncate">
+                  {v == null ? "—" : typeof v === "number" ? formatNum(v) : String(v)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {eligibleForCoveredCall && (
           <Link href={startCoveredCall()} className="btn-primary rounded-lg px-3 py-1.5 text-sm">
@@ -441,4 +459,11 @@ function fmtDecimal(v: number, dp: number): string {
   if (!Number.isFinite(v)) return "—";
   const sign = v < 0 ? "−" : v > 0 ? "+" : "";
   return `${sign}${Math.abs(v).toFixed(dp)}`;
+}
+
+function formatNum(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (Number.isInteger(v)) return String(v);
+  return v.toFixed(Math.abs(v) < 1 ? 4 : 2);
 }

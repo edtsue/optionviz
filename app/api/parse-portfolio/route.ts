@@ -17,6 +17,9 @@ const HoldingSchema = z.object({
   assetType: z.enum(["stock", "etf", "option", "cash", "other"]).nullish(),
   iv: z.coerce.number().nullish(),
   delta: z.coerce.number().nullish(),
+  extras: z
+    .record(z.union([z.string(), z.number(), z.null()]))
+    .nullish(),
 });
 
 const PortfolioSchema = z.object({
@@ -38,13 +41,14 @@ For each holding, extract:
 - unrealizedPnL: \$ unrealized P/L if shown
 - unrealizedPnLPct: % unrealized P/L if shown
 - assetType: "stock" | "etf" | "option" | "cash" | "other"
-- iv: implied volatility AS A PERCENT (e.g. 41.08 — not 0.4108). Many brokers show this in an "IV" column for option rows. null if not shown.
-- delta: per-share option delta IN DECIMAL (e.g. 0.1158, or -0.1278 for a put). Long-convention regardless of position side. Many brokers show this in a "Delta" column. null if not shown.
+- iv: implied volatility AS A PERCENT (e.g. 41.08 — not 0.4108). null if not shown.
+- delta: per-share option delta IN DECIMAL (e.g. 0.1158). Long-convention regardless of position side. null if not shown.
+- extras: an object containing EVERY OTHER COLUMN visible in the row that isn't already captured above. Use the broker's exact column label as the key (e.g. "Day Change %", "Bid", "Ask", "Volume", "Open Interest", "ITM", "Beta", "52w High", "Yield", "Reinvest?", "% of Acct", "Price Chng", "Price Chng %", "Day Chng \$", "Day Chng %"). Strip currency symbols and commas from numbers but keep percentages as numbers (e.g. "Day Change %": 1.45). Use null for empty cells. Skip columns already captured in the typed fields above.
 
 Also extract totalValue (account total) and cashBalance if visible. Return ISO date for asOf if shown.
 
 Return ONLY a JSON object:
-{ "totalValue": number|null, "cashBalance": number|null, "asOf": string|null, "holdings": [...] }
+{ "totalValue": number|null, "cashBalance": number|null, "asOf": string|null, "holdings": [{ ..., "extras": { "<column label>": value, ... } | null }] }
 No prose, no markdown.`;
 
 function extractJson(text: string): unknown {
