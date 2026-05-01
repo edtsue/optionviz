@@ -39,7 +39,7 @@ const SUGGESTED = [
 ];
 
 export function TradeChat({ trade }: { trade: Trade }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [staged, setStaged] = useState<StagedImage | null>(null);
@@ -155,7 +155,7 @@ export function TradeChat({ trade }: { trade: Trade }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="card card-tight flex w-full items-center justify-between text-left transition hover:border-accent/40"
+        className="card card-tight rainbow-halo flex w-full items-center justify-between text-left transition"
       >
         <span className="flex items-center gap-2">
           <ClaudeMark size={16} className="text-[#d97757]" />
@@ -168,7 +168,7 @@ export function TradeChat({ trade }: { trade: Trade }) {
 
   return (
     <div
-      className="card card-tight space-y-3"
+      className="card card-tight rainbow-halo space-y-3"
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >

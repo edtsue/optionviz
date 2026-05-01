@@ -179,3 +179,23 @@ details > summary {
   cursor: pointer;
 }
 details > summary::-webkit-details-marker { display: none; }
+
+.rainbow-halo {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 14px 2px rgba(255, 77, 77, 0.28),
+    0 0 22px 4px rgba(255, 184, 0, 0.22),
+    0 0 30px 6px rgba(204, 255, 0, 0.20),
+    0 0 38px 8px rgba(0, 212, 255, 0.18),
+    0 0 46px 10px rgba(124, 92, 255, 0.16),
+    0 0 54px 12px rgba(255, 77, 222, 0.14);
+  animation: rainbow-glow-pulse 4s ease-in-out infinite;
+}
+@keyframes rainbow-glow-pulse {
+  0%, 100% { filter: brightness(1) saturate(1); }
+  50% { filter: brightness(1.12) saturate(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rainbow-halo { animation: none; }
+}
