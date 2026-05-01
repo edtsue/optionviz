@@ -327,33 +327,12 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
                 {greeksData.qty} contract{greeksData.qty === 1 ? "" : "s"}
                 {greeksData.sideSign < 0 ? " short" : " long"}
               </div>
-              {/* Per-share view (matches broker UI) */}
-              <div className="rounded-md border border-border/60 bg-white/[0.02] p-2.5">
-                <div className="mb-1 flex items-baseline justify-between">
-                  <span className="text-[10px] uppercase tracking-wider muted">Per share (matches broker)</span>
-                  <span className="text-[10px] muted">long convention</span>
-                </div>
-                <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 data-grid">
-                  <Mini label="Delta" value={greeksData.perShareDeltaLong.toFixed(4)} hint="Long-convention per-share delta" />
-                  <Mini label="Gamma" value={greeksData.perShare.gamma.toFixed(4)} hint="Per share" />
-                  <Mini label="Theta" value={greeksData.perShare.theta.toFixed(3) + "/d"} hint="$ per share per day" />
-                  <Mini label="Vega" value={greeksData.perShare.vega.toFixed(3)} hint="Per share per 1 IV pt" />
-                  <Mini label="Rho" value={greeksData.perShare.rho.toFixed(3)} hint="Per share per 1% rate" />
-                </div>
-              </div>
-              {/* Position view (×qty×side×100) */}
-              <div className="rounded-md border border-border p-2.5">
-                <div className="mb-1 flex items-baseline justify-between">
-                  <span className="text-[10px] uppercase tracking-wider muted">Position ({greeksData.sideSign < 0 ? "−" : "+"}{greeksData.qty} contract{greeksData.qty === 1 ? "" : "s"})</span>
-                  <span className="text-[10px] muted">$ exposure</span>
-                </div>
-                <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 data-grid">
-                  <Mini label="Delta" value={greeksData.position.delta.toFixed(2)} hint="Per $1 underlying move (decimal)" />
-                  <Mini label="Gamma" value={greeksData.position.gamma.toFixed(4)} hint="Δ change per $1 move" />
-                  <Mini label="Theta" value={fmtUsd(greeksData.position.theta) + "/d"} hint="$ change per day" />
-                  <Mini label="Vega" value={fmtUsd(greeksData.position.vega)} hint="$ change per 1 IV point" />
-                  <Mini label="Rho" value={fmtUsd(greeksData.position.rho)} hint="$ change per 1% rate" />
-                </div>
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 data-grid">
+                <Mini label="Delta" value={greeksData.perShareDeltaLong.toFixed(4)} hint="Per-share delta, long convention" />
+                <Mini label="Gamma" value={greeksData.perShare.gamma.toFixed(4)} hint="Per share" />
+                <Mini label="Theta" value={greeksData.perShare.theta.toFixed(3) + "/d"} hint="$ per share per day" />
+                <Mini label="Vega" value={greeksData.perShare.vega.toFixed(3)} hint="Per share per 1 IV pt" />
+                <Mini label="Rho" value={greeksData.perShare.rho.toFixed(3)} hint="Per share per 1% rate" />
               </div>
               {greeksData.deltaSource === "computed" && (
                 <div className="rounded-md border border-warn/30 bg-warn/5 p-2 text-[11px] warn">
