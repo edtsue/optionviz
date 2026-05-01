@@ -3,11 +3,31 @@ import { useEffect, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import { netGreeks, tradeStats } from "@/lib/payoff";
+import { resizeImage } from "@/lib/image";
 import { ClaudeMark } from "./ClaudeMark";
 
+interface ImageBlock {
+  type: "image";
+  source: { type: "base64"; media_type: string; data: string };
+}
+interface TextBlock {
+  type: "text";
+  text: string;
+}
+type Content = string | Array<TextBlock | ImageBlock>;
 interface Msg {
   role: "user" | "assistant";
-  content: string;
+  content: Content;
+}
+
+interface StagedImage {
+  dataUrl: string;
+  mediaType: string;
+  base64: string;
+  name: string;
+  width: number;
+  height: number;
+  bytes: number;
 }
 
 const SUGGESTED = [
@@ -22,20 +42,87 @@ export function TradeChat({ trade }: { trade: Trade }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+  const [staged, setStaged] = useState<StagedImage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, busy]);
 
+  // Paste-from-clipboard support — only when chat is open and focused-ish
+  useEffect(() => {
+    if (!open) return;
+    function onPaste(e: ClipboardEvent) {
+      const item = Array.from(e.clipboardData?.items ?? []).find((i) =>
+        i.type.startsWith("image/"),
+      );
+      if (!item) return;
+      const file = item.getAsFile();
+      if (file) {
+        e.preventDefault();
+        attachFile(file);
+      }
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [open]);
+
+  async function attachFile(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setError("Only image files are supported");
+      return;
+    }
+    setError(null);
+    try {
+      const r = await resizeImage(file);
+      setStaged({
+        dataUrl: r.dataUrl,
+        mediaType: r.mediaType,
+        base64: r.dataUrl.split(",")[1] ?? "",
+        name: file.name || "image",
+        width: r.width,
+        height: r.height,
+        bytes: r.resizedBytes,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? `Image processing failed: ${e.message}` : "Image processing failed");
+    }
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
-    const next: Msg[] = [...messages, { role: "user", content: trimmed }];
+    if ((!trimmed && !staged) || busy) return;
+
+    // Build the user message content. If an image is staged, send mixed blocks.
+    let content: Content;
+    if (staged) {
+      const blocks: Array<TextBlock | ImageBlock> = [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: staged.mediaType,
+            data: staged.base64,
+          },
+        },
+      ];
+      if (trimmed) {
+        blocks.push({ type: "text", text: trimmed });
+      } else {
+        blocks.push({ type: "text", text: "Take a look at this." });
+      }
+      content = blocks;
+    } else {
+      content = trimmed;
+    }
+
+    const next: Msg[] = [...messages, { role: "user", content }];
     setMessages(next);
     setInput("");
+    setStaged(null);
     setBusy(true);
     setError(null);
     try {
@@ -58,6 +145,12 @@ export function TradeChat({ trade }: { trade: Trade }) {
     }
   }
 
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if (f) attachFile(f);
+  }
+
   if (!open) {
     return (
       <button
@@ -74,7 +167,11 @@ export function TradeChat({ trade }: { trade: Trade }) {
   }
 
   return (
-    <div className="card card-tight space-y-3">
+    <div
+      className="card card-tight space-y-3"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={onDrop}
+    >
       <div className="flex items-baseline justify-between">
         <div className="flex items-center gap-2">
           <ClaudeMark size={16} className="text-[#d97757]" />
@@ -101,22 +198,12 @@ export function TradeChat({ trade }: { trade: Trade }) {
       <div ref={scrollRef} className="scroll-soft max-h-80 overflow-y-auto">
         {messages.length === 0 && (
           <div className="rounded-lg border border-border bg-white/[0.02] p-3 text-xs muted">
-            Ask anything about this position. Claude knows the symbol, legs, strikes, expiry, Greeks, and stats.
+            Ask anything about this position. Drop / paste / attach an image (broker ticket, chart, headline) for visual context.
           </div>
         )}
         <div className="space-y-2 pt-2">
           {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[92%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "bg-accent/20 text-text"
-                    : "border border-border bg-white/[0.03] text-text"
-                }`}
-              >
-                {m.content}
-              </div>
-            </div>
+            <MessageBubble key={i} msg={m} />
           ))}
           {busy && <div className="text-xs muted">Thinking…</div>}
           {error && <div className="text-xs loss">{error}</div>}
@@ -137,6 +224,30 @@ export function TradeChat({ trade }: { trade: Trade }) {
         ))}
       </div>
 
+      {staged && (
+        <div className="flex items-center gap-2 rounded-md border border-border bg-white/[0.02] p-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={staged.dataUrl}
+            alt="Attached"
+            className="h-12 w-12 rounded object-cover border border-border"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs">{staged.name}</div>
+            <div className="text-[10px] muted">
+              {staged.width}×{staged.height} · {(staged.bytes / 1024).toFixed(0)} KB
+            </div>
+          </div>
+          <button
+            onClick={() => setStaged(null)}
+            disabled={busy}
+            className="rounded-md border border-border px-2 py-1 text-[11px] hover:border-loss/50 hover:text-loss"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -144,21 +255,71 @@ export function TradeChat({ trade }: { trade: Trade }) {
         }}
         className="flex gap-2"
       >
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          aria-label="Attach image"
+          title="Attach image (drop or ⌘V also work)"
+          className="rounded-md border border-border px-3 py-2 text-sm hover:border-accent/50"
+        >
+          📎
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          onChange={(e) => e.target.files?.[0] && attachFile(e.target.files[0])}
+          className="hidden"
+        />
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask anything about this trade…"
+          placeholder={staged ? "Add a question (optional)…" : "Ask anything about this trade…"}
           disabled={busy}
           className="flex-1 rounded-md border border-border bg-white/[0.02] px-3 py-2 text-sm"
         />
         <button
           type="submit"
-          disabled={busy || !input.trim()}
+          disabled={busy || (!input.trim() && !staged)}
           className="btn-primary rounded-md px-3 py-2 text-sm"
         >
           Send
         </button>
       </form>
+    </div>
+  );
+}
+
+function MessageBubble({ msg }: { msg: Msg }) {
+  const isUser = msg.role === "user";
+  const blocks: Array<TextBlock | ImageBlock> =
+    typeof msg.content === "string"
+      ? [{ type: "text", text: msg.content }]
+      : msg.content;
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[92%] space-y-2 rounded-xl px-3 py-2 text-sm leading-relaxed ${
+          isUser ? "bg-accent/20 text-text" : "border border-border bg-white/[0.03] text-text"
+        }`}
+      >
+        {blocks.map((b, i) =>
+          b.type === "text" ? (
+            <div key={i} className="whitespace-pre-wrap">
+              {b.text}
+            </div>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={`data:${b.source.media_type};base64,${b.source.data}`}
+              alt="Attached"
+              className="max-h-48 rounded-md border border-border"
+            />
+          ),
+        )}
+      </div>
     </div>
   );
 }

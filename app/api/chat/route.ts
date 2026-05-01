@@ -13,12 +13,27 @@ Output rules:
 
 You are given the user's current view as JSON context (the page they're on and any data loaded). Use it to ground your answers — refer to specific symbols, strikes, expiries, holdings, Greeks, or stats from the context when relevant. Mention values in plain English ("delta is +65"), not as code or JSON.
 
+When the user attaches an image, read it carefully and reference what you see directly. Common attachments: broker order tickets, portfolio screenshots, payoff charts, headlines.
+
 When relevant to the user's holdings or trades, proactively flag upcoming catalysts that could move the position: earnings, ex-dividend dates, FOMC meetings, product events, lockup expiries. Use your knowledge; if you're not sure of a date, say "around [quarter/month]" rather than guess.
 
 Stay focused on options, equities, payoff structures, Greeks, IV, and risk. Decline politely if asked something outside that scope.`;
 
+interface ImageBlock {
+  type: "image";
+  source: { type: "base64"; media_type: string; data: string };
+}
+interface TextBlock {
+  type: "text";
+  text: string;
+}
+type Content = string | Array<TextBlock | ImageBlock>;
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: Content;
+}
 interface ChatRequest {
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: ChatMessage[];
   context?: unknown;
 }
 
@@ -31,30 +46,35 @@ export async function POST(req: NextRequest) {
 
     // Inject the current view as a single short system-style message at the top
     // of the user thread to keep token usage tight.
-    const trimmed = messages.slice(-12); // cap history
-    const contextMessage = context
+    const trimmed = messages.slice(-12);
+    const contextMessage: ChatMessage[] = context
       ? [
           {
-            role: "user" as const,
+            role: "user",
             content: `Current view (JSON):\n${JSON.stringify(context)}`,
           },
           {
-            role: "assistant" as const,
+            role: "assistant",
             content: "Got it — I'll keep that in mind.",
           },
         ]
       : [];
 
+    // The SDK accepts mixed content arrays directly; cast through unknown for
+    // the image-block type which the SDK types as a union we may not match
+    // exactly.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
-      max_tokens: 500,
+      max_tokens: 800,
       system: SYSTEM,
       messages: [...contextMessage, ...trimmed],
-    });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
 
-    const text = resp.content
-      .filter((c) => c.type === "text")
-      .map((c) => (c as { text: string }).text)
+    const text = (resp.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
       .join("\n");
 
     return NextResponse.json({ reply: text });
