@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
-import { ChatLauncher } from "./ChatLauncher";
 import { ChatContextProvider } from "@/lib/chat-context";
 import { SettingsButton } from "./SettingsPanel";
 
@@ -156,9 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="h-full w-px bg-border transition group-hover:bg-accent/60" />
         </div>
 
-        <main className="min-w-0 flex-1 pt-12 pb-20 md:pt-0 md:pb-20">{children}</main>
-
-        <ChatLauncher />
+        <main className="min-w-0 flex-1 pt-12 pb-6 md:pt-0 md:pb-6">{children}</main>
       </div>
     </ChatContextProvider>
   );
