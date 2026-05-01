@@ -24,8 +24,11 @@ interface NewsResponse {
 const CACHE_KEY = "optionviz.today.v1";
 const PORTFOLIO_KEY = "optionviz.portfolio.v1";
 
+const MANUAL_KEY = "optionviz.today.manual-tickers";
+
 export default function TodayPage() {
-  const [tickers, setTickers] = useState<string[]>([]);
+  const [autoTickers, setAutoTickers] = useState<string[]>([]);
+  const [manualInput, setManualInput] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
@@ -36,6 +39,10 @@ export default function TodayPage() {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "null");
       if (cached?.news) setNews(cached.news);
       if (cached?.timestamp) setLastFetch(cached.timestamp);
+    } catch {}
+    try {
+      const saved = localStorage.getItem(MANUAL_KEY) ?? "";
+      if (saved) setManualInput(saved);
     } catch {}
 
     async function gather() {
@@ -60,10 +67,24 @@ export default function TodayPage() {
           }
         }
       } catch {}
-      setTickers([...set].sort());
+      setAutoTickers([...set].sort());
     }
     gather();
   }, []);
+
+  const manualTickers = manualInput
+    .split(/[\s,]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => /^[A-Z.]{1,6}$/.test(s));
+
+  const tickers = Array.from(new Set([...autoTickers, ...manualTickers])).sort();
+
+  function onManualChange(v: string) {
+    setManualInput(v);
+    try {
+      localStorage.setItem(MANUAL_KEY, v);
+    } catch {}
+  }
 
   async function fetchNews() {
     if (tickers.length === 0) return;
@@ -117,7 +138,7 @@ export default function TodayPage() {
         </button>
       </div>
 
-      <div className="card card-tight space-y-2">
+      <div className="card card-tight space-y-3">
         <div className="flex items-baseline justify-between">
           <div className="label">Tracking ({tickers.length})</div>
           {lastFetch && (
@@ -126,21 +147,54 @@ export default function TodayPage() {
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {tickers.length === 0 && (
-            <span className="text-xs muted">
-              No tickers found. Save a trade or upload a portfolio first.
-            </span>
-          )}
-          {tickers.map((t) => (
-            <span
-              key={t}
-              className="rounded-md border border-border bg-white/[0.02] px-2 py-1 text-xs font-mono"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider muted">
+            Tickers (comma or space separated)
+          </span>
+          <input
+            type="text"
+            value={manualInput}
+            onChange={(e) => onManualChange(e.target.value)}
+            placeholder="e.g. NVDA, AAPL, MSFT, TSLA"
+            className="w-full rounded-md border border-border bg-white/[0.02] px-3 py-2 text-sm font-mono"
+            autoCapitalize="characters"
+          />
+        </label>
+
+        {(autoTickers.length > 0 || tickers.length > 0) && (
+          <div className="flex flex-wrap gap-1.5">
+            {tickers.map((t) => {
+              const isAuto = autoTickers.includes(t);
+              return (
+                <span
+                  key={t}
+                  className={`rounded-md border px-2 py-1 text-xs font-mono ${
+                    isAuto
+                      ? "border-accent/40 bg-accent/[0.05]"
+                      : "border-border bg-white/[0.02]"
+                  }`}
+                  title={isAuto ? "From your saved trades / portfolio" : "Manually added"}
+                >
+                  {t}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {tickers.length === 0 && (
+          <p className="text-xs muted">
+            Type tickers above, save a trade, or upload a portfolio to populate this list.
+          </p>
+        )}
+
+        {autoTickers.length > 0 && (
+          <p className="text-[10px] muted">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent align-middle"></span>{" "}
+            tickers from saved trades or portfolio · plain border = manually added
+          </p>
+        )}
       </div>
 
       {error && (
