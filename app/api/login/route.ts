@@ -8,16 +8,17 @@ interface Body {
 
 export async function POST(req: NextRequest) {
   try {
-    const sitePw = process.env.SITE_PASSWORD;
-    const secret = process.env.AUTH_SECRET;
+    const sitePw = process.env.SITE_PASSWORD?.trim();
+    const secret = process.env.AUTH_SECRET?.trim();
     if (!sitePw || !secret) {
       return NextResponse.json(
-        { error: "Auth not configured. Server is missing SITE_PASSWORD or AUTH_SECRET." },
+        { error: "Auth not configured. Server is missing SITE_PASSWORD or AUTH_SECRET. Set both in Vercel and redeploy." },
         { status: 500 },
       );
     }
     const body = (await req.json().catch(() => ({}))) as Body;
-    if (typeof body.password !== "string" || body.password !== sitePw) {
+    const submitted = typeof body.password === "string" ? body.password.trim() : "";
+    if (submitted !== sitePw) {
       return NextResponse.json({ error: "Wrong password" }, { status: 401 });
     }
     const res = NextResponse.json({ ok: true });

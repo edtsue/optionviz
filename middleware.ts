@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 const COOKIE = "ov-auth";
 
 function isAuthed(req: NextRequest): boolean {
-  const expected = process.env.AUTH_SECRET;
+  const expected = process.env.AUTH_SECRET?.trim();
   if (!expected) return false;
   return req.cookies.get(COOKIE)?.value === expected;
 }
