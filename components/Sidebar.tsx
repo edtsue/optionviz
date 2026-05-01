@@ -21,15 +21,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     : null;
 
   return (
-    <aside className="flex h-full flex-col gap-3 p-3">
+    <aside className="flex h-full flex-col gap-2 px-2 py-2.5">
       <div className="flex items-center justify-between px-1">
         <Link href="/" onClick={onNavigate} className="flex items-baseline gap-1">
-          <span className="text-lg font-semibold tracking-tight">Option</span>
-          <span className="text-lg font-semibold tracking-tight text-accent">Viz</span>
+          <span className="text-base font-semibold tracking-tight">Option</span>
+          <span className="text-base font-semibold tracking-tight text-accent">Viz</span>
         </Link>
       </div>
 
-      <nav className="flex flex-col gap-1">
+      <nav className="flex flex-col gap-0.5">
         <NavLink
           href="/"
           label="Trade"
@@ -51,12 +51,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           router.push("/trade/new");
           onNavigate?.();
         }}
-        className="btn-primary w-full rounded-lg px-3 py-2 text-sm"
+        className="btn-primary w-full rounded-lg px-3 py-1.5 text-sm"
       >
         + New trade
       </button>
 
-      <div className="mt-2 flex items-center justify-between px-1">
+      <div className="mt-1 flex items-center justify-between px-1">
         <div className="label">Saved trades</div>
         {trades && <span className="text-xs muted">{trades.length}</span>}
       </div>
@@ -116,7 +116,7 @@ function NavLink({
     <Link
       href={href}
       onClick={onNav}
-      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
         active ? "bg-white/[0.06] text-white" : "text-textDim hover:bg-white/[0.03] hover:text-white"
       }`}
       style={active ? { boxShadow: `inset 0 0 0 1px ${dot}55` } : undefined}
