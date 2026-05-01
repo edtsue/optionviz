@@ -35,8 +35,8 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
     <div className="flex flex-col gap-3">
       <div className="card card-tight space-y-3">
         <div className="flex items-baseline justify-between">
-          <span className="label">Position</span>
-          <span className="text-[10px] muted">$ values are per-position</span>
+          <span className="label">Trade</span>
+          <span className="text-[10px] muted">per-position</span>
         </div>
         <Hero label="Max Profit" value={fmtUsd(stats.maxProfit)} t="gain" />
         <Hero label="Max Loss" value={fmtUsd(stats.maxLoss)} t="loss" />
@@ -55,31 +55,31 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
         </div>
 
         <div className="border-t border-border pt-3">
-          <div className="mb-1 flex items-baseline justify-between">
-            <span className="text-[10px] uppercase tracking-wider muted">Greeks</span>
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-wider muted">Greeks · per share</span>
             {asOf && (
               <span className="text-[10px] warn" title="Slider has moved time forward">
                 as of {asOf}
               </span>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-2 data-grid">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] gap-x-3 gap-y-3 data-grid">
             <Cell
               label="Delta"
-              value={`${greeks.delta >= 0 ? "+" : "−"}${Math.abs(greeks.delta / 100).toFixed(2)}`}
+              value={fmtDecimal(greeks.delta, 4)}
               t={greeks.delta > 0 ? "gain" : greeks.delta < 0 ? "loss" : ""}
-              title="Position delta (decimal). Multiply by 100 for $ exposure per $1 underlying move."
+              title="Per-share delta, summed across legs"
             />
             <Cell
-              label="Implied Vol"
-              value={avgIV != null ? `${(avgIV * 100).toFixed(0)}%` : "—"}
+              label="IV"
+              value={avgIV != null ? `${(avgIV * 100).toFixed(1)}%` : "—"}
               title="Average implied volatility across legs"
             />
             <Cell
               label="Theta"
-              value={`${greeks.theta >= 0 ? "+" : "−"}$${Math.abs(greeks.theta).toFixed(0)}/d`}
+              value={fmtDecimal(greeks.theta, 3)}
               t={greeks.theta > 0 ? "gain" : greeks.theta < 0 ? "loss" : ""}
-              title="$ change per day from time decay"
+              title="$ per share per day"
             />
           </div>
         </div>
@@ -93,23 +93,25 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
         </button>
 
         {showMore && (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3 data-grid">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] gap-x-3 gap-y-3 border-t border-border pt-3 data-grid">
             <Cell label="Margin (est)" value={fmtUsd(stats.marginEstimate)} />
             <Cell
               label="Gamma"
-              value={(greeks.gamma / 100).toFixed(4)}
+              value={fmtDecimal(greeks.gamma, 4)}
               t={greeks.gamma > 0 ? "gain" : greeks.gamma < 0 ? "loss" : ""}
-              title="Position gamma (decimal). Delta change per $1 underlying move."
+              title="Per-share gamma"
             />
             <Cell
               label="Vega"
-              value={`${greeks.vega >= 0 ? "+" : "−"}$${Math.abs(greeks.vega).toFixed(2)}`}
+              value={fmtDecimal(greeks.vega, 3)}
               t={greeks.vega > 0 ? "gain" : greeks.vega < 0 ? "loss" : ""}
+              title="$ per share per 1 IV pt"
             />
             <Cell
               label="Rho"
-              value={`${greeks.rho >= 0 ? "+" : "−"}$${Math.abs(greeks.rho).toFixed(2)}`}
+              value={fmtDecimal(greeks.rho, 3)}
               t={greeks.rho > 0 ? "gain" : greeks.rho < 0 ? "loss" : ""}
+              title="$ per share per 1% rate"
             />
           </div>
         )}
@@ -153,6 +155,12 @@ function Cell({
       {sub && <span className="text-[10px] muted">{sub}</span>}
     </div>
   );
+}
+
+function fmtDecimal(v: number, dp: number): string {
+  if (!Number.isFinite(v)) return "—";
+  const sign = v < 0 ? "−" : v > 0 ? "+" : "";
+  return `${sign}${Math.abs(v).toFixed(dp)}`;
 }
 
 // avoid unused tone helper warnings — keep for future use

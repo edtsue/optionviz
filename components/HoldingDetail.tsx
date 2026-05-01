@@ -327,12 +327,12 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
                 {greeksData.qty} contract{greeksData.qty === 1 ? "" : "s"}
                 {greeksData.sideSign < 0 ? " short" : " long"}
               </div>
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 data-grid">
-                <Mini label="Delta" value={greeksData.perShareDeltaLong.toFixed(4)} hint="Per-share delta, long convention" />
-                <Mini label="Gamma" value={greeksData.perShare.gamma.toFixed(4)} hint="Per share" />
-                <Mini label="Theta" value={greeksData.perShare.theta.toFixed(3) + "/d"} hint="$ per share per day" />
-                <Mini label="Vega" value={greeksData.perShare.vega.toFixed(3)} hint="Per share per 1 IV pt" />
-                <Mini label="Rho" value={greeksData.perShare.rho.toFixed(3)} hint="Per share per 1% rate" />
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] gap-x-3 gap-y-3 data-grid">
+                <Mini label="Delta" value={fmtDecimal(greeksData.perShareDeltaLong, 4)} hint="Per-share delta, long convention" />
+                <Mini label="Gamma" value={fmtDecimal(greeksData.perShare.gamma, 4)} hint="Per share" />
+                <Mini label="Theta" value={fmtDecimal(greeksData.perShare.theta, 3)} hint="$ per share per day" />
+                <Mini label="Vega" value={fmtDecimal(greeksData.perShare.vega, 3)} hint="Per share per 1 IV pt" />
+                <Mini label="Rho" value={fmtDecimal(greeksData.perShare.rho, 3)} hint="Per share per 1% rate" />
               </div>
               {greeksData.deltaSource === "computed" && (
                 <div className="rounded-md border border-warn/30 bg-warn/5 p-2 text-[11px] warn">
@@ -430,14 +430,15 @@ function InputField({
 
 function Mini({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div title={hint}>
+    <div className="min-w-0" title={hint}>
       <div className="text-[10px] uppercase tracking-wider muted">{label}</div>
-      <div className="text-sm font-semibold font-mono">{value}</div>
+      <div className="font-mono text-sm font-semibold tabular-nums truncate">{value}</div>
     </div>
   );
 }
 
-function fmtUsd(v: number): string {
-  const sign = v >= 0 ? "+" : "−";
-  return `${sign}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+function fmtDecimal(v: number, dp: number): string {
+  if (!Number.isFinite(v)) return "—";
+  const sign = v < 0 ? "−" : v > 0 ? "+" : "";
+  return `${sign}${Math.abs(v).toFixed(dp)}`;
 }

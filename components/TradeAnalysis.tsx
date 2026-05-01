@@ -5,7 +5,7 @@ import { detectStrategy } from "@/lib/strategies";
 import {
   buildPayoff,
   fillImpliedVolsForTrade,
-  netGreeks,
+  perShareGreeks,
   totalPnL,
   tradeStats,
   type PayoffPoint,
@@ -50,7 +50,7 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
       ...p,
       mid: +totalPnL(filled, p.spot, targetDate).toFixed(2),
     }));
-    const greeksAtTarget = netGreeks(filled, targetDate);
+    const greeksAtTarget = perShareGreeks(filled, targetDate);
 
     // 1σ band at expiry from average leg IV (lognormal terminal price)
     const T = yearsBetween(now, lastExpiry);

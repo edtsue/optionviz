@@ -109,6 +109,36 @@ export function netGreeks(trade: Trade, valuationDate = new Date()): NetGreeks {
   return acc;
 }
 
+// Per-share Greeks summed across legs with side sign only (no qty, no contract
+// multiplier). Useful when you want broker-comparable units. For a single-leg
+// long call, this returns the same numbers your broker shows in the Greeks
+// columns. For multi-leg trades (verticals, condors), it's the sum of each
+// leg's per-share Greek with the appropriate +/- sign.
+export function perShareGreeks(trade: Trade, valuationDate = new Date()): NetGreeks {
+  const acc: NetGreeks = { price: 0, delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
+  for (const leg of trade.legs) {
+    const expiry = new Date(leg.expiration);
+    const T = yearsBetween(valuationDate, expiry);
+    const sigma = leg.iv ?? 0.3;
+    const g = bs({
+      S: trade.underlyingPrice,
+      K: leg.strike,
+      T,
+      r: trade.riskFreeRate,
+      sigma,
+      type: leg.type,
+    });
+    const sign = legSign(leg.side);
+    acc.price += sign * g.price;
+    acc.delta += sign * g.delta;
+    acc.gamma += sign * g.gamma;
+    acc.theta += sign * g.theta;
+    acc.vega += sign * g.vega;
+    acc.rho += sign * g.rho;
+  }
+  return acc;
+}
+
 export interface TradeStats {
   maxProfit: number | "unlimited";
   maxLoss: number | "unlimited";
