@@ -2,7 +2,6 @@
 import { useState } from "react";
 import type { Trade } from "@/types/trade";
 import type { NetGreeks, TradeStats } from "@/lib/payoff";
-import { IdeasPanel } from "./IdeasPanel";
 
 interface Props {
   greeks: NetGreeks;
@@ -116,8 +115,6 @@ export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
           </div>
         )}
       </div>
-
-      <IdeasPanel trade={trade} />
     </div>
   );
 }
