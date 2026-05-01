@@ -19,17 +19,17 @@ interface NewsResponse {
   items: TickerNews[];
   asOf?: string;
   fallback?: boolean;
-  truncated?: boolean;
-  partial?: boolean;
 }
 
 const CACHE_KEY = "optionviz.today.v1";
 const PORTFOLIO_KEY = "optionviz.portfolio.v1";
-
+const SELECTED_KEY = "optionviz.today.selected";
 const MANUAL_KEY = "optionviz.today.manual-tickers";
+const MAX_SELECTED = 3;
 
 export default function TodayPage() {
-  const [autoTickers, setAutoTickers] = useState<string[]>([]);
+  const [available, setAvailable] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [manualInput, setManualInput] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +41,10 @@ export default function TodayPage() {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "null");
       if (cached?.news) setNews(cached.news);
       if (cached?.timestamp) setLastFetch(cached.timestamp);
+    } catch {}
+    try {
+      const savedSel = JSON.parse(localStorage.getItem(SELECTED_KEY) ?? "[]");
+      if (Array.isArray(savedSel)) setSelected(savedSel.slice(0, MAX_SELECTED));
     } catch {}
     try {
       const saved = localStorage.getItem(MANUAL_KEY) ?? "";
@@ -69,7 +73,7 @@ export default function TodayPage() {
           }
         }
       } catch {}
-      setAutoTickers([...set].sort());
+      setAvailable([...set].sort());
     }
     gather();
   }, []);
@@ -79,7 +83,33 @@ export default function TodayPage() {
     .map((s) => s.trim().toUpperCase())
     .filter((s) => /^[A-Z.]{1,6}$/.test(s));
 
-  const tickers = Array.from(new Set([...autoTickers, ...manualTickers])).sort();
+  const allChips = Array.from(new Set([...available, ...manualTickers])).sort();
+
+  function toggleSelected(ticker: string) {
+    setSelected((cur) => {
+      const isSel = cur.includes(ticker);
+      let next: string[];
+      if (isSel) {
+        next = cur.filter((t) => t !== ticker);
+      } else if (cur.length >= MAX_SELECTED) {
+        // Already at cap — replace oldest
+        next = [...cur.slice(1), ticker];
+      } else {
+        next = [...cur, ticker];
+      }
+      try {
+        localStorage.setItem(SELECTED_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  function clearSelected() {
+    setSelected([]);
+    try {
+      localStorage.setItem(SELECTED_KEY, "[]");
+    } catch {}
+  }
 
   function onManualChange(v: string) {
     setManualInput(v);
@@ -89,14 +119,14 @@ export default function TodayPage() {
   }
 
   async function fetchNews() {
-    if (tickers.length === 0) return;
+    if (selected.length === 0) return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/today", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
+        body: JSON.stringify({ tickers: selected }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -116,11 +146,14 @@ export default function TodayPage() {
     }
   }
 
-  const highCount = news?.items.reduce(
-    (acc, t) => acc + t.items.filter((i) => i.importance === "high").length,
-    0,
-  ) ?? 0;
+  const highCount =
+    news?.items.reduce(
+      (acc, t) => acc + t.items.filter((i) => i.importance === "high").length,
+      0,
+    ) ?? 0;
   const totalCount = news?.items.reduce((acc, t) => acc + t.items.length, 0) ?? 0;
+
+  const atCap = selected.length >= MAX_SELECTED;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4">
@@ -128,75 +161,103 @@ export default function TodayPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
           <p className="text-xs muted">
-            News from the past 24 hours affecting your positions
+            Pick up to {MAX_SELECTED} tickers — Claude returns the top 2 news items per ticker
           </p>
         </div>
         <button
           onClick={fetchNews}
-          disabled={busy || tickers.length === 0}
+          disabled={busy || selected.length === 0}
           className="btn-primary rounded-lg px-3 py-2 text-sm"
         >
-          {busy ? "Searching…" : news ? "Refresh news" : "Scrape today's news"}
+          {busy
+            ? "Searching…"
+            : selected.length === 0
+              ? "Pick tickers first"
+              : `Get news for ${selected.length} ticker${selected.length === 1 ? "" : "s"}`}
         </button>
       </div>
 
       <div className="card card-tight space-y-3">
         <div className="flex items-baseline justify-between">
-          <div className="label">Tracking ({tickers.length})</div>
-          {lastFetch && (
-            <span className="text-[11px] muted">
-              Last fetched {new Date(lastFetch).toLocaleString()}
-            </span>
-          )}
+          <div className="label">
+            Selected ({selected.length}/{MAX_SELECTED})
+          </div>
+          <div className="flex items-center gap-3">
+            {selected.length > 0 && (
+              <button
+                onClick={clearSelected}
+                className="text-[11px] muted hover:text-text"
+              >
+                Clear
+              </button>
+            )}
+            {lastFetch && (
+              <span className="text-[11px] muted">
+                Last fetched {new Date(lastFetch).toLocaleString()}
+              </span>
+            )}
+          </div>
         </div>
 
-        <label className="flex flex-col gap-1">
+        {selected.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {selected.map((t) => (
+              <button
+                key={t}
+                onClick={() => toggleSelected(t)}
+                className="rounded-md border border-accent bg-accent/15 px-2 py-1 text-xs font-mono text-accent transition hover:bg-accent/25"
+                title="Click to deselect"
+              >
+                {t} ✕
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs muted">
+            Tap up to {MAX_SELECTED} tickers below to scrape news for them.
+          </p>
+        )}
+
+        <div className="border-t border-border pt-3">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-wider muted">Available</span>
+            <span className="text-[10px] muted">
+              {atCap ? "Selecting another will replace the oldest" : "Click to select"}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {allChips.length === 0 && (
+              <span className="text-xs muted">
+                None yet — type tickers below or save a trade / upload a portfolio
+              </span>
+            )}
+            {allChips
+              .filter((t) => !selected.includes(t))
+              .map((t) => (
+                <button
+                  key={t}
+                  onClick={() => toggleSelected(t)}
+                  className="rounded-md border border-border bg-white/[0.02] px-2 py-1 text-xs font-mono transition hover:border-accent/60 hover:text-accent"
+                >
+                  {t}
+                </button>
+              ))}
+          </div>
+        </div>
+
+        <label className="flex flex-col gap-1 border-t border-border pt-3">
           <span className="text-[10px] uppercase tracking-wider muted">
-            Tickers (comma or space separated)
+            Add tickers manually (comma or space separated)
           </span>
           <input
             type="text"
             value={manualInput}
             onChange={(e) => onManualChange(e.target.value)}
-            placeholder="e.g. NVDA, AAPL, MSFT, TSLA"
+            placeholder="e.g. NVDA AAPL TSLA"
             className="w-full rounded-md border border-border bg-white/[0.02] px-3 py-2 text-sm font-mono"
             autoCapitalize="characters"
           />
         </label>
-
-        {(autoTickers.length > 0 || tickers.length > 0) && (
-          <div className="flex flex-wrap gap-1.5">
-            {tickers.map((t) => {
-              const isAuto = autoTickers.includes(t);
-              return (
-                <span
-                  key={t}
-                  className={`rounded-md border px-2 py-1 text-xs font-mono ${
-                    isAuto
-                      ? "border-accent/40 bg-accent/[0.05]"
-                      : "border-border bg-white/[0.02]"
-                  }`}
-                  title={isAuto ? "From your saved trades / portfolio" : "Manually added"}
-                >
-                  {t}
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {tickers.length === 0 && (
-          <p className="text-xs muted">
-            Type tickers above, save a trade, or upload a portfolio to populate this list.
-          </p>
-        )}
-
-        {autoTickers.length > 0 && (
-          <p className="text-[10px] muted">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent align-middle"></span>{" "}
-            tickers from saved trades or portfolio · plain border = manually added
-          </p>
-        )}
       </div>
 
       {error && (
@@ -209,21 +270,17 @@ export default function TodayPage() {
         <>
           {news.fallback && (
             <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
-              ⚠ Web search isn&rsquo;t enabled on your Anthropic API key. Showing scheduled catalysts from training data instead. Enable the web_search tool at{" "}
-              <a href="https://console.anthropic.com/settings/limits" target="_blank" rel="noopener" className="underline">
+              ⚠ Web search isn&rsquo;t enabled on your Anthropic API key. Showing scheduled
+              catalysts from training data instead. Enable the web_search tool at{" "}
+              <a
+                href="https://console.anthropic.com/settings/limits"
+                target="_blank"
+                rel="noopener"
+                className="underline"
+              >
                 console.anthropic.com/settings/limits
-              </a>{" "}
-              for live news.
-            </div>
-          )}
-          {news.truncated && (
-            <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
-              Some content was trimmed to fit the response. Try fewer tickers if you want more detail per name.
-            </div>
-          )}
-          {news.partial && (
-            <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
-              Some tickers couldn&rsquo;t be processed in this run. Refresh news to retry the missing ones.
+              </a>
+              .
             </div>
           )}
           <div className="card card-tight">
@@ -239,8 +296,8 @@ export default function TodayPage() {
           </div>
 
           {news.items.length === 0 && (
-            <div className="card text-sm muted text-center">
-              No relevant news on any of your tickers in the last 24 hours.
+            <div className="card text-center text-sm muted">
+              No relevant news on the selected tickers.
             </div>
           )}
           <div className="space-y-3">
