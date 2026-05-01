@@ -200,7 +200,7 @@ export default function PortfolioPage() {
   );
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] flex-col p-4 md:h-screen">
+    <div className="flex h-[calc(100vh-3rem)] flex-col pl-3 pr-4 py-4 md:h-screen">
       <header className="mb-4 flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Portfolio</h1>
