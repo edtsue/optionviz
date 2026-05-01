@@ -72,9 +72,11 @@ export async function POST(req: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
-    const text = (resp.content ?? [])
-      .filter((c: { type: string }) => c.type === "text")
-      .map((c: { text?: string }) => c.text ?? "")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = resp.content ?? [];
+    const text = blocks
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
       .join("\n");
 
     return NextResponse.json({ reply: text });
