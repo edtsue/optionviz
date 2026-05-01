@@ -18,6 +18,7 @@ interface TickerNews {
 interface NewsResponse {
   items: TickerNews[];
   asOf?: string;
+  fallback?: boolean;
 }
 
 const CACHE_KEY = "optionviz.today.v1";
@@ -150,6 +151,15 @@ export default function TodayPage() {
 
       {news && (
         <>
+          {news.fallback && (
+            <div className="rounded-lg border border-warn/30 bg-warn/[0.06] p-3 text-xs warn">
+              ⚠ Web search isn&rsquo;t enabled on your Anthropic API key. Showing scheduled catalysts from training data instead. Enable the web_search tool at{" "}
+              <a href="https://console.anthropic.com/settings/limits" target="_blank" rel="noopener" className="underline">
+                console.anthropic.com/settings/limits
+              </a>{" "}
+              for live news.
+            </div>
+          )}
           <div className="card card-tight">
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="kpi-sm">{totalCount}</span>
