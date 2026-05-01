@@ -17,6 +17,7 @@ import { TimeSlider } from "@/components/TimeSlider";
 import { Inspector } from "@/components/Inspector";
 import { StressTest } from "@/components/StressTest";
 import { ResizableSplit } from "@/components/ResizableSplit";
+import { TradeChat } from "@/components/TradeChat";
 
 export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
   const [dayProgress, setDayProgress] = useState(0);
@@ -137,6 +138,8 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
           </div>
         )}
       </div>
+
+      <TradeChat trade={data.filled} />
     </div>
   );
 
