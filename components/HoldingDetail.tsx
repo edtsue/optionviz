@@ -11,6 +11,12 @@ interface Props {
 }
 
 const SPOT_KEY = "optionviz.holding-spot.v1";
+const OVERRIDES_KEY = "optionviz.holding-overrides.v1";
+
+interface Override {
+  premium?: number;
+  ivPct?: number;
+}
 
 function loadSpot(symbol: string): number | null {
   if (typeof window === "undefined") return null;
@@ -27,12 +33,28 @@ function saveSpot(symbol: string, value: number | null) {
   if (typeof window === "undefined") return;
   try {
     const map = JSON.parse(localStorage.getItem(SPOT_KEY) ?? "{}");
-    if (value == null || !Number.isFinite(value) || value <= 0) {
-      delete map[symbol];
-    } else {
-      map[symbol] = value;
-    }
+    if (value == null || !Number.isFinite(value) || value <= 0) delete map[symbol];
+    else map[symbol] = value;
     localStorage.setItem(SPOT_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function loadOverride(key: string): Override {
+  if (typeof window === "undefined") return {};
+  try {
+    const map = JSON.parse(localStorage.getItem(OVERRIDES_KEY) ?? "{}");
+    return map[key] ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function saveOverride(key: string, override: Override) {
+  if (typeof window === "undefined") return;
+  try {
+    const map = JSON.parse(localStorage.getItem(OVERRIDES_KEY) ?? "{}");
+    map[key] = override;
+    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(map));
   } catch {}
 }
 
@@ -58,16 +80,39 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
     [holding.symbol, holding.name],
   );
 
-  // Spot input — persisted per symbol in localStorage
+  // Persistence keys
+  const overrideKey = useMemo(
+    () => (parsed ? `${parsed.underlying}|${parsed.type}|${parsed.strike}|${parsed.expiration}` : ""),
+    [parsed],
+  );
+
+  // Spot input — persisted per underlying ticker
   const [spotInput, setSpotInput] = useState<string>("");
+  // Premium and IV overrides — persisted per option contract
+  const [premiumInput, setPremiumInput] = useState<string>("");
+  const [ivInput, setIvInput] = useState<string>("");
+
   useEffect(() => {
     if (!isOption || !parsed) return;
-    const saved = loadSpot(parsed.underlying);
-    setSpotInput(saved != null ? String(saved) : "");
-  }, [isOption, parsed]);
+    const savedSpot = loadSpot(parsed.underlying);
+    setSpotInput(savedSpot != null ? String(savedSpot) : "");
+    const savedOverride = loadOverride(overrideKey);
+    setPremiumInput(
+      savedOverride.premium != null
+        ? String(savedOverride.premium)
+        : holding.marketPrice != null
+          ? String(holding.marketPrice)
+          : "",
+    );
+    setIvInput(savedOverride.ivPct != null ? String(savedOverride.ivPct) : "");
+  }, [isOption, parsed, overrideKey, holding.marketPrice]);
 
   const spot = parseFloat(spotInput);
   const validSpot = Number.isFinite(spot) && spot > 0;
+  const premium = parseFloat(premiumInput);
+  const validPremium = Number.isFinite(premium) && premium > 0;
+  const ivOverridePct = parseFloat(ivInput);
+  const hasIvOverride = Number.isFinite(ivOverridePct) && ivOverridePct > 0;
 
   // Solve IV from option market price + user's spot, scale Greeks by qty
   const greeksData = useMemo(() => {
@@ -76,13 +121,16 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
     if (T <= 0) return null;
     if (!validSpot) return { ready: false as const, parsed, T };
 
-    const marketPrice = holding.marketPrice;
     const r = 0.045;
 
     let sigma: number | null = null;
-    let ivSource: "solved" | "default" = "default";
-    if (marketPrice != null && marketPrice > 0) {
-      const solved = impliedVol(marketPrice, spot, parsed.strike, T, r, parsed.type);
+    let ivSource: "override" | "solved" | "default" = "default";
+
+    if (hasIvOverride) {
+      sigma = ivOverridePct / 100;
+      ivSource = "override";
+    } else if (validPremium) {
+      const solved = impliedVol(premium, spot, parsed.strike, T, r, parsed.type);
       if (solved != null && solved > 0.01 && solved < 5) {
         sigma = solved;
         ivSource = "solved";
@@ -103,7 +151,6 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
       sigma,
       ivSource,
       perShare: g,
-      // Position decimal delta and gamma; position dollar theta/vega/rho
       position: {
         delta: g.delta * positionMult,
         gamma: g.gamma * positionMult,
@@ -114,7 +161,7 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
       qty,
       sideSign,
     };
-  }, [isOption, parsed, validSpot, spot, holding.marketPrice, holding.quantity]);
+  }, [isOption, parsed, validSpot, spot, validPremium, premium, hasIvOverride, ivOverridePct, holding.quantity]);
 
   function startCoveredCall() {
     const params = new URLSearchParams({
@@ -160,6 +207,30 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
     }
   }
 
+  function onPremiumChange(v: string) {
+    setPremiumInput(v);
+    if (overrideKey) {
+      const n = parseFloat(v);
+      const cur = loadOverride(overrideKey);
+      saveOverride(overrideKey, {
+        ...cur,
+        premium: Number.isFinite(n) && n > 0 ? n : undefined,
+      });
+    }
+  }
+
+  function onIvChange(v: string) {
+    setIvInput(v);
+    if (overrideKey) {
+      const n = parseFloat(v);
+      const cur = loadOverride(overrideKey);
+      saveOverride(overrideKey, {
+        ...cur,
+        ivPct: Number.isFinite(n) && n > 0 ? n : undefined,
+      });
+    }
+  }
+
   return (
     <div className="space-y-4 bg-bg/50 p-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -194,23 +265,48 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
             </div>
           </div>
 
-          <label className="flex flex-wrap items-center gap-2">
-            <span className="text-xs muted whitespace-nowrap">{parsed.underlying} spot $</span>
-            <input
-              type="number"
-              step="0.01"
+          <div className="grid gap-2 sm:grid-cols-3">
+            <InputField
+              label={`${parsed.underlying} spot $`}
               value={spotInput}
-              onChange={(e) => onSpotChange(e.target.value)}
-              placeholder="Enter underlying price for accurate Greeks"
-              className="flex-1 min-w-[180px] rounded-md border border-border bg-white/[0.02] px-2 py-1 text-sm font-mono"
+              onChange={onSpotChange}
+              placeholder="Required"
+              step="0.01"
             />
-          </label>
+            <InputField
+              label="Option premium (per share) $"
+              value={premiumInput}
+              onChange={onPremiumChange}
+              placeholder={holding.marketPrice != null ? String(holding.marketPrice) : "e.g. 1.50"}
+              step="0.01"
+              hint={
+                holding.marketPrice != null && validPremium && Math.abs(premium - holding.marketPrice) < 0.001
+                  ? "From screenshot"
+                  : holding.marketPrice != null
+                    ? `Parsed: $${holding.marketPrice}`
+                    : undefined
+              }
+            />
+            <InputField
+              label="IV override (%) — leave blank to back-solve"
+              value={ivInput}
+              onChange={onIvChange}
+              placeholder="auto"
+              step="1"
+            />
+          </div>
 
           {greeksData && greeksData.ready ? (
             <>
               <div className="text-[11px] muted">
-                IV {greeksData.ivSource === "solved" ? "back-solved from market price" : "assumed"}: {(greeksData.sigma * 100).toFixed(1)}% · {greeksData.qty} contract{greeksData.qty === 1 ? "" : "s"}
-                {greeksData.sideSign < 0 ? " (short)" : ""}
+                {greeksData.ivSource === "override"
+                  ? `IV (you set): ${(greeksData.sigma * 100).toFixed(1)}%`
+                  : greeksData.ivSource === "solved"
+                    ? `IV (back-solved from $${premium.toFixed(2)} premium): ${(greeksData.sigma * 100).toFixed(1)}%`
+                    : `IV (assumed): ${(greeksData.sigma * 100).toFixed(1)}%`}
+                {" · "}
+                {greeksData.qty} contract{greeksData.qty === 1 ? "" : "s"}
+                {greeksData.sideSign < 0 ? " short" : " long"}
               </div>
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 data-grid">
                 <Mini label="Delta" value={greeksData.position.delta.toFixed(2)} hint="Per $1 underlying move (decimal)" />
@@ -219,10 +315,17 @@ export function HoldingDetail({ holding, totalPortfolioValue }: Props) {
                 <Mini label="Vega" value={fmtUsd(greeksData.position.vega)} hint="$ change per 1 IV point" />
                 <Mini label="Rho" value={fmtUsd(greeksData.position.rho)} hint="$ change per 1% rate" />
               </div>
+              {greeksData.ivSource === "solved" && greeksData.sigma > 1.5 && (
+                <div className="rounded-md border border-warn/30 bg-warn/5 p-2 text-[11px] warn">
+                  ⚠ The back-solved IV is &gt;{(greeksData.sigma * 100).toFixed(0)}%, which is unusually high.
+                  The premium is probably the contract value (price × 100) instead of per-share.
+                  Try dividing the premium by 100 (e.g. $150 → $1.50).
+                </div>
+              )}
             </>
           ) : (
             <div className="text-xs muted">
-              Enter the {parsed.underlying} spot price above to see accurate Greeks. We&rsquo;ll back-solve IV from the option&rsquo;s market price.
+              Enter the {parsed.underlying} spot price to see accurate Greeks.
             </div>
           )}
         </div>
@@ -265,6 +368,39 @@ function Field({
         {value}
       </div>
     </div>
+  );
+}
+
+function InputField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  step,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  step?: string;
+  hint?: string;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wider muted truncate" title={label}>
+        {label}
+      </span>
+      <input
+        type="number"
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-md border border-border bg-white/[0.02] px-2 py-1 text-sm font-mono"
+      />
+      {hint && <span className="text-[10px] muted">{hint}</span>}
+    </label>
   );
 }
 
