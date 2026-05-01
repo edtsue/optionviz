@@ -44,6 +44,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           active={pathname === "/portfolio"}
           onNav={onNavigate}
         />
+        <NavLink
+          href="/today"
+          label="Today"
+          dot="#f59e0b"
+          active={pathname === "/today"}
+          onNav={onNavigate}
+        />
       </nav>
 
       <button

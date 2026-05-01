@@ -27,8 +27,16 @@ const PORTFOLIO: Theme = {
   accentDimRgb: "14 116 144",
 };
 
+const TODAY: Theme = {
+  accent: "#f59e0b",
+  accentRgb: "245 158 11",
+  accentDim: "#b45309",
+  accentDimRgb: "180 83 9",
+};
+
 function themeFor(pathname: string | null): Theme {
   if (pathname?.startsWith("/portfolio")) return PORTFOLIO;
+  if (pathname?.startsWith("/today")) return TODAY;
   return TRADE;
 }
 
