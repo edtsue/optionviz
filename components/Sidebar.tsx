@@ -21,7 +21,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     : null;
 
   return (
-    <aside className="flex h-full flex-col gap-2 pl-2 pr-1.5 py-2.5">
+    <aside className="flex h-full w-full min-w-0 flex-col gap-2 pl-2 pr-1.5 py-2.5">
       <div className="flex items-center justify-between px-1">
         <Link href="/" onClick={onNavigate} className="flex items-baseline gap-1">
           <span className="text-base font-semibold tracking-tight">Option</span>
