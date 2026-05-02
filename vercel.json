@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/parse-ticket/route.ts": { "maxDuration": 60 },
+    "app/api/ideas/route.ts": { "maxDuration": 60 },
+    "app/api/parse-portfolio/route.ts": { "maxDuration": 60 },
+    "app/api/analyze-portfolio/route.ts": { "maxDuration": 60 },
+    "app/api/today/route.ts": { "maxDuration": 90 }
+  }
+}
