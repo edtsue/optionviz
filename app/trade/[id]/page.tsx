@@ -143,6 +143,18 @@ function TradeView({ trade, tradeId }: { trade: Trade; tradeId: string }) {
         </div>
       </div>
 
+      {trade.ticketImagePath && (
+        <div className="card card-tight">
+          <div className="label mb-2">Ticket Screenshot</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/ticket-image?path=${encodeURIComponent(trade.ticketImagePath)}`}
+            alt="Trade ticket"
+            className="max-h-96 rounded-lg border border-border"
+          />
+        </div>
+      )}
+
       {trade.notes && (
         <div className="card card-tight">
           <div className="label mb-1">Notes</div>

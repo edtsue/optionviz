@@ -161,13 +161,14 @@ function NewTradeInner() {
         <section className="min-w-0 overflow-hidden space-y-3 pr-3">
           <div className="label">Capture</div>
           <TicketUpload
-            onParsed={(p) => {
+            onParsed={(p, imagePath) => {
               setTrade((current) => ({
                 ...current,
                 symbol: p.symbol || current.symbol,
                 underlyingPrice: p.underlyingPrice || current.underlyingPrice,
                 legs: p.legs.length ? p.legs : current.legs,
                 notes: p.notes ?? current.notes,
+                ticketImagePath: imagePath ?? current.ticketImagePath,
               }));
             }}
           />

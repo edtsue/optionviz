@@ -26,7 +26,11 @@ interface Staged {
   height: number;
 }
 
-export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void }) {
+export function TicketUpload({
+  onParsed,
+}: {
+  onParsed: (t: ParsedTicket, imagePath?: string) => void;
+}) {
   const [staged, setStaged] = useState<Staged | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,17 +65,37 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
     setError(null);
     try {
       const base64 = staged.dataUrl.split(",")[1];
-      const res = await fetch("/api/parse-ticket", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: staged.mediaType }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? `Parse failed (${res.status})`);
+      const payload = JSON.stringify({ imageBase64: base64, mediaType: staged.mediaType });
+
+      // Run OCR parse and cloud upload in parallel; upload failure is non-fatal.
+      const [parseResult, uploadResult] = await Promise.allSettled([
+        fetch("/api/parse-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        }),
+        fetch("/api/upload-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        }),
+      ]);
+
+      if (parseResult.status === "rejected") throw new Error("Failed to parse ticket");
+      const parseRes = parseResult.value;
+      if (!parseRes.ok) {
+        const j = await parseRes.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error ?? `Parse failed (${parseRes.status})`);
       }
-      const parsed = (await res.json()) as ParsedTicket;
-      onParsed(parsed);
+      const parsed = (await parseRes.json()) as ParsedTicket;
+
+      let imagePath: string | undefined;
+      if (uploadResult.status === "fulfilled" && uploadResult.value.ok) {
+        const j = await uploadResult.value.json().catch(() => ({}));
+        imagePath = (j as { path?: string }).path;
+      }
+
+      onParsed(parsed, imagePath);
       setStaged(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse ticket");
@@ -202,13 +226,4 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
       {error && <div className="text-sm text-loss">{error}</div>}
     </div>
   );
-}
-
-function fileToDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }

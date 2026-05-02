@@ -79,7 +79,7 @@ export function buildPayoff(trade: Trade, points = 121): PayoffPoint[] {
   return out;
 }
 
-export interface NetGreeks extends Greeks {}
+export type NetGreeks = Greeks;
 
 export function netGreeks(trade: Trade, valuationDate = new Date()): NetGreeks {
   const acc: NetGreeks = { price: 0, delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
