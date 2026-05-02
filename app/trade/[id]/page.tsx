@@ -11,6 +11,39 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useRegisterChatContext } from "@/lib/chat-context";
 import type { Trade } from "@/types/trade";
 
+function TicketImage({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/ticket-image?path=${encodeURIComponent(path)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) {
+          if (j.url) setUrl(j.url);
+          else setErr(true);
+        }
+      })
+      .catch(() => !cancelled && setErr(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  if (err) return null;
+  if (!url) return <div className="h-8 text-xs muted">Loading ticket image…</div>;
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt="Original ticket screenshot"
+      className="max-h-96 rounded-lg border border-border object-contain"
+    />
+  );
+}
+
 export default function TradePage() {
   const params = useParams<{ id: string }>();
   const [trade, setTrade] = useState<Trade | null>(null);
@@ -210,6 +243,13 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         <div className="card card-tight">
           <div className="label mb-1">Notes</div>
           <p className="text-sm whitespace-pre-wrap">{trade.notes}</p>
+        </div>
+      )}
+
+      {trade.ticketImagePath && (
+        <div className="card card-tight">
+          <div className="label mb-2">Ticket screenshot</div>
+          <TicketImage path={trade.ticketImagePath} />
         </div>
       )}
     </div>

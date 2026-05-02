@@ -179,6 +179,7 @@ function NewTradeInner() {
                     }))
                   : current.legs,
                 notes: p.notes ?? current.notes,
+                ticketImagePath: p.ticketImagePath ?? current.ticketImagePath,
               }));
             }}
           />
