@@ -47,8 +47,12 @@ export default function TradePage() {
   return <TradeView trade={trade} tradeId={params.id} />;
 }
 
-function TradeView({ trade, tradeId }: { trade: Trade; tradeId: string }) {
+function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: string }) {
   const router = useRouter();
+  const [trade, setTrade] = useState<Trade>(initialTrade);
+  const [spotStatus, setSpotStatus] = useState<{ updating: boolean; asOf?: string; error?: string }>({
+    updating: false,
+  });
   const strategy = detectStrategy(trade);
   const greeks = netGreeks(trade);
   const stats = tradeStats(trade);
@@ -89,6 +93,19 @@ function TradeView({ trade, tradeId }: { trade: Trade; tradeId: string }) {
     router.push("/");
   }
 
+  async function onUpdateSpot() {
+    setSpotStatus({ updating: true });
+    try {
+      const { price, asOf } = await tradesClient.fetchSpot(trade.symbol);
+      const updated = await tradesClient.updateSpot(tradeId, price);
+      setTrade(fillImpliedVolsForTrade(updated));
+      setSpotStatus({ updating: false, asOf });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "update failed";
+      setSpotStatus({ updating: false, error: msg });
+    }
+  }
+
   return (
     <div className="space-y-4 pl-3 pr-4 py-4">
       <header className="flex flex-wrap items-baseline justify-between gap-3">
@@ -98,11 +115,26 @@ function TradeView({ trade, tradeId }: { trade: Trade; tradeId: string }) {
           </h1>
           <div className="text-xs muted data-grid">
             Underlying <span className="kpi-xs">${trade.underlyingPrice.toFixed(2)}</span> · {strategy.bias} bias
+            {spotStatus.asOf && !spotStatus.error && (
+              <span className="ml-2 text-[10px] muted">updated {spotStatus.asOf}</span>
+            )}
+            {spotStatus.error && (
+              <span className="ml-2 text-[10px] loss">{spotStatus.error}</span>
+            )}
           </div>
         </div>
-        <button onClick={onDelete} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
-          Delete
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onUpdateSpot}
+            disabled={spotStatus.updating}
+            className="btn-ghost rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
+          >
+            {spotStatus.updating ? "Updating…" : "Update spot"}
+          </button>
+          <button onClick={onDelete} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
+            Delete
+          </button>
+        </div>
       </header>
 
       <TradeAnalysis trade={trade} />

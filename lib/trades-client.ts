@@ -43,6 +43,33 @@ export const tradesClient = {
     return data.id as string;
   },
 
+  async updateSpot(id: string, underlyingPrice: number): Promise<Trade> {
+    const res = await fetch(`/api/trades/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ underlyingPrice }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error ?? `Update spot failed (HTTP ${res.status})`);
+    }
+    const data = await res.json();
+    return data.trade as Trade;
+  },
+
+  async fetchSpot(symbol: string): Promise<{ price: number; asOf: string; source: string | null }> {
+    const res = await fetch("/api/spot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error ?? `Spot fetch failed (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
   async remove(id: string): Promise<void> {
     const res = await fetch(`/api/trades/${id}`, { method: "DELETE" });
     if (!res.ok) {

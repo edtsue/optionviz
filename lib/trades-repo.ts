@@ -132,6 +132,19 @@ export async function createTrade(trade: Trade): Promise<string> {
   return tradeId;
 }
 
+export async function updateUnderlyingPrice(id: string, price: number): Promise<Trade | null> {
+  const sb = supabaseServer();
+  const { error } = await sb
+    .from("trades")
+    .update({ underlying_price: price })
+    .eq("id", id);
+  if (error) {
+    console.error("trades.update underlying_price failed:", error);
+    throw pgErr(error, "Update underlying price failed");
+  }
+  return getTrade(id);
+}
+
 export async function deleteTrade(id: string): Promise<void> {
   const sb = supabaseServer();
   const { error } = await sb.from("trades").delete().eq("id", id);
