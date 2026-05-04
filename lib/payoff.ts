@@ -79,7 +79,7 @@ export function buildPayoff(trade: Trade, points = 121): PayoffPoint[] {
   return out;
 }
 
-export interface NetGreeks extends Greeks {}
+export type NetGreeks = Greeks;
 
 export function netGreeks(trade: Trade, valuationDate = new Date()): NetGreeks {
   const acc: NetGreeks = { price: 0, delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
@@ -154,11 +154,16 @@ export function tradeStats(trade: Trade): TradeStats {
   const maxP = Math.max(...expVals);
   const minP = Math.min(...expVals);
 
-  // Detect unbounded payoff by checking slopes at the tails.
-  const leftSlope = expVals[1] - expVals[0];
-  const rightSlope = expVals[expVals.length - 1] - expVals[expVals.length - 2];
-  const unboundedUp = rightSlope > 0.01;
-  const unboundedDown = leftSlope < -0.01;
+  // Detect unbounded payoff by slope per dollar of underlying. Threshold is
+  // ≥ $1 P/L per $1 underlying (≈ one contract's worth of delta) to avoid
+  // tripping on floating-point noise from far-OTM legs.
+  const last = payoff.length - 1;
+  const leftDx = payoff[1].spot - payoff[0].spot || 1;
+  const rightDx = payoff[last].spot - payoff[last - 1].spot || 1;
+  const leftSlope = (expVals[1] - expVals[0]) / leftDx;
+  const rightSlope = (expVals[last] - expVals[last - 1]) / rightDx;
+  const unboundedUp = rightSlope >= 1;
+  const unboundedDown = leftSlope <= -1;
 
   // Breakevens via sign changes of expiry P/L.
   const breakevens: number[] = [];
@@ -178,11 +183,43 @@ export function tradeStats(trade: Trade): TradeStats {
   );
 
   // Rough margin estimate. Real broker margin varies — this is directional.
+  // Detects:
+  //   - covered call: short call fully covered by shares → 0 margin
+  //   - vertical credit spread: short leg paired with same-type long further
+  //     OTM at same expiry → margin = width × qty × 100 (less the credit)
+  //   - cash-secured put: full strike collateral
+  //   - naked short call: Reg-T style max(20%S − OTM, 10%K) × 100 × qty
   let margin = 0;
+  let sharesCovering = trade.underlying?.shares ?? 0;
   for (const l of trade.legs) {
-    if (l.side === "short") {
-      if (l.type === "put") margin += l.strike * 100 * l.quantity;
-      else margin += trade.underlyingPrice * 0.2 * 100 * l.quantity;
+    if (l.side !== "short") continue;
+    // Covered-call test (call only): consume 100 shares per contract.
+    if (l.type === "call" && sharesCovering >= 100 * l.quantity) {
+      sharesCovering -= 100 * l.quantity;
+      continue;
+    }
+    // Vertical-spread test: a long leg of the same type, same expiry, with
+    // a "protective" strike (above for short call, below for short put).
+    const protector = trade.legs.find(
+      (o) =>
+        o !== l &&
+        o.side === "long" &&
+        o.type === l.type &&
+        o.expiration === l.expiration &&
+        (l.type === "call" ? o.strike > l.strike : o.strike < l.strike),
+    );
+    if (protector) {
+      const width = Math.abs(protector.strike - l.strike);
+      margin += width * 100 * Math.min(l.quantity, protector.quantity);
+      continue;
+    }
+    if (l.type === "put") {
+      margin += l.strike * 100 * l.quantity;
+    } else {
+      const S = trade.underlyingPrice;
+      const otm = Math.max(l.strike - S, 0);
+      const naked = Math.max(0.2 * S - otm, 0.1 * l.strike);
+      margin += naked * 100 * l.quantity;
     }
   }
 
@@ -201,6 +238,10 @@ export function tradeStats(trade: Trade): TradeStats {
 
 function approxPoP(trade: Trade, breakevens: number[]): number | undefined {
   if (breakevens.length === 0 || trade.legs.length === 0) return undefined;
+  // Skip calendars/diagonals: lognormal sim through the latest expiry
+  // mis-models legs that already expired earlier.
+  const expiries = new Set(trade.legs.map((l) => l.expiration));
+  if (expiries.size > 1) return undefined;
   const lastExpiry = new Date(
     Math.max(...trade.legs.map((l) => new Date(l.expiration).getTime())),
   );
@@ -208,11 +249,14 @@ function approxPoP(trade: Trade, breakevens: number[]): number | undefined {
   if (T <= 0) return undefined;
   const ivs = trade.legs.map((l) => l.iv ?? 0.3);
   const sigma = ivs.reduce((a, b) => a + b, 0) / ivs.length;
-  // Sample lognormal terminal prices
-  const N = 4000;
+  // Deterministic PRNG seeded by the position so results don't jitter between
+  // renders for the same trade. 10k samples → ~0.5% std error on a 50% PoP.
+  const seed = popSeed(trade);
+  const rng = mulberry32(seed);
+  const N = 10_000;
   let wins = 0;
   for (let i = 0; i < N; i++) {
-    const z = sampleNormal();
+    const z = sampleNormal(rng);
     const sT =
       trade.underlyingPrice *
       Math.exp((trade.riskFreeRate - 0.5 * sigma * sigma) * T + sigma * Math.sqrt(T) * z);
@@ -222,12 +266,35 @@ function approxPoP(trade: Trade, breakevens: number[]): number | undefined {
   return wins / N;
 }
 
-function sampleNormal(): number {
+function sampleNormal(rng: () => number): number {
   let u = 0;
   let v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function popSeed(trade: Trade): number {
+  let h = 2166136261;
+  const s = `${trade.symbol}|${trade.underlyingPrice}|${trade.riskFreeRate}|${trade.legs
+    .map((l) => `${l.side}${l.type}${l.strike}${l.expiration}${l.quantity}${l.premium}${l.iv ?? ""}`)
+    .join(",")}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 export function fillImpliedVolsForTrade(trade: Trade): Trade {

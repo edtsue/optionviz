@@ -5,6 +5,7 @@ import { TicketUpload } from "@/components/TicketUpload";
 import { TradeForm } from "@/components/TradeForm";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
 import { ResizableSplit } from "@/components/ResizableSplit";
+import { notifyTradesChanged } from "@/components/Sidebar";
 import { tradesClient } from "@/lib/trades-client";
 import type { Leg, Trade } from "@/types/trade";
 
@@ -145,6 +146,7 @@ function NewTradeInner() {
 
   async function save(t: Trade) {
     const id = await tradesClient.create(t);
+    notifyTradesChanged();
     router.push(`/trade/${id}`);
   }
 
@@ -166,7 +168,16 @@ function NewTradeInner() {
                 ...current,
                 symbol: p.symbol || current.symbol,
                 underlyingPrice: p.underlyingPrice || current.underlyingPrice,
-                legs: p.legs.length ? p.legs : current.legs,
+                legs: p.legs.length
+                  ? p.legs.map((l) => ({
+                      type: l.type,
+                      side: l.side,
+                      strike: l.strike ?? 0,
+                      expiration: l.expiration,
+                      quantity: l.quantity ?? 1,
+                      premium: l.premium ?? 0,
+                    }))
+                  : current.legs,
                 notes: p.notes ?? current.notes,
               }));
             }}

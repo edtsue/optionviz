@@ -1,11 +1,19 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
 import { detectStrategy } from "@/lib/strategies";
 import { SettingsButton } from "./SettingsPanel";
-import type { Trade } from "@/types/trade";
+import type { DetectedStrategy, Trade } from "@/types/trade";
+
+const TRADES_CHANGED_EVENT = "optionviz:trades-changed";
+
+export function notifyTradesChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(TRADES_CHANGED_EVENT));
+  }
+}
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -13,8 +21,25 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [trades, setTrades] = useState<Trade[] | null>(null);
 
   useEffect(() => {
-    tradesClient.list().then(setTrades).catch(() => setTrades([]));
-  }, [pathname]);
+    let cancelled = false;
+    function load() {
+      tradesClient
+        .list()
+        .then((t) => !cancelled && setTrades(t))
+        .catch(() => !cancelled && setTrades([]));
+    }
+    load();
+    window.addEventListener(TRADES_CHANGED_EVENT, load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(TRADES_CHANGED_EVENT, load);
+    };
+  }, []);
+
+  const enriched = useMemo<Array<{ trade: Trade; strategy: DetectedStrategy }>>(
+    () => (trades ?? []).map((t) => ({ trade: t, strategy: detectStrategy(t) })),
+    [trades],
+  );
 
   const activeTradeId = pathname?.startsWith("/trade/") && !pathname.endsWith("/new")
     ? pathname.split("/")[2]
@@ -72,8 +97,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {trades === null && <div className="px-3 text-xs muted">Loading…</div>}
         {trades?.length === 0 && <div className="px-3 text-xs muted">No trades yet</div>}
         <ul className="flex flex-col gap-0.5">
-          {trades?.map((t) => {
-            const strat = detectStrategy(t);
+          {enriched.map(({ trade: t, strategy: strat }) => {
             const active = t.id === activeTradeId;
             return (
               <li key={t.id}>

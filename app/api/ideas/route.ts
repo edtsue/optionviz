@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { anthropic, REASONING_MODEL } from "@/lib/claude";
-import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import { tradeStats, netGreeks, fillImpliedVolsForTrade } from "@/lib/payoff";
+import { TradePayloadSchema } from "@/lib/trade-schema";
+import { parseClaudeJsonRaw } from "@/lib/claude-json";
+import { localIdeas } from "@/lib/local-ideas";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
+import type { Trade } from "@/types/trade";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,10 +31,34 @@ For each event:
 
 CRITICAL: Return ONLY a single JSON object: { "ideas": [...], "events": [...] }. No markdown, no code fences, no prose, no leading or trailing text. Every "structure" field MUST be a string, not an object.`;
 
+const IdeasResponseSchema = z.object({
+  ideas: z.array(z.unknown()).optional(),
+  events: z.array(z.unknown()).optional(),
+});
+
 export async function POST(req: NextRequest) {
   try {
-    const trade = (await req.json()) as Trade;
+    const rl = rateLimit(`ideas:${clientIp(req)}`, 30, 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: "rate limited" }, { status: 429 });
+    }
+
+    const raw = await req.json().catch(() => ({}));
+    const parsedTrade = TradePayloadSchema.safeParse(raw);
+    if (!parsedTrade.success) {
+      return NextResponse.json(
+        { error: parsedTrade.error.issues[0]?.message ?? "invalid trade" },
+        { status: 400 },
+      );
+    }
+    const trade = parsedTrade.data as Trade;
     const filled = fillImpliedVolsForTrade(trade);
+
+    // Local fallback when no API key is configured.
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) {
+      return NextResponse.json({ ideas: localIdeas(filled), events: [] });
+    }
+
     const strategy = detectStrategy(filled);
     const stats = tradeStats(filled);
     const greeks = netGreeks(filled);
@@ -66,11 +95,17 @@ export async function POST(req: NextRequest) {
       .filter((c) => c.type === "text")
       .map((c) => (c as { text: string }).text)
       .join("\n");
-    const cleaned = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
+    const rawParsed = parseClaudeJsonRaw(text);
+    if (rawParsed == null) {
+      return NextResponse.json({ ideas: localIdeas(filled), events: [] });
+    }
     // Backwards-compat: older responses returned a bare array
-    const ideas = Array.isArray(parsed) ? parsed : parsed.ideas ?? [];
-    const events = Array.isArray(parsed) ? [] : parsed.events ?? [];
+    const ideas = Array.isArray(rawParsed)
+      ? rawParsed
+      : (IdeasResponseSchema.safeParse(rawParsed).data?.ideas ?? []);
+    const events = Array.isArray(rawParsed)
+      ? []
+      : (IdeasResponseSchema.safeParse(rawParsed).data?.events ?? []);
     return NextResponse.json({ ideas, events });
   } catch (err) {
     console.error("[ideas] failed:", err);

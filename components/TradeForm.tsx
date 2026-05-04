@@ -1,6 +1,27 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { impliedVol, yearsBetween } from "@/lib/black-scholes";
 import type { Leg, Trade } from "@/types/trade";
+
+function clientKey(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+// Heuristic: a premium that back-solves to >250% IV is almost certainly the
+// per-contract dollar value (e.g. 150 instead of 1.50). Warn — don't block.
+function suspiciousPremiumLeg(t: Trade): number | null {
+  const now = new Date();
+  for (let i = 0; i < t.legs.length; i++) {
+    const l = t.legs[i];
+    if (!l.premium || l.premium <= 0) continue;
+    if (l.iv != null) continue;
+    const T = yearsBetween(now, new Date(l.expiration));
+    if (T <= 0) continue;
+    const iv = impliedVol(l.premium, t.underlyingPrice, l.strike, T, t.riskFreeRate, l.type);
+    if (iv != null && iv > 2.5) return i;
+  }
+  return null;
+}
 
 interface Props {
   trade: Trade;
@@ -11,6 +32,13 @@ interface Props {
 export function TradeForm({ trade, onChange, onSave }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Stable per-leg key for React reconciliation. Tracked outside the trade so
+  // we don't have to round-trip a synthetic field through the schema.
+  const legKeys = useRef<string[]>(trade.legs.map((l) => l.id ?? clientKey()));
+  function ensureKey(i: number): string {
+    if (!legKeys.current[i]) legKeys.current[i] = clientKey();
+    return legKeys.current[i];
+  }
 
   function setTrade(updater: Trade | ((t: Trade) => Trade)) {
     const next = typeof updater === "function" ? (updater as (t: Trade) => Trade)(trade) : updater;
@@ -26,6 +54,7 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
 
   function addLeg() {
     const last = trade.legs[trade.legs.length - 1];
+    legKeys.current = [...legKeys.current, clientKey()];
     setTrade((t) => ({
       ...t,
       legs: [
@@ -45,6 +74,7 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
   }
 
   function removeLeg(i: number) {
+    legKeys.current = legKeys.current.filter((_, idx) => idx !== i);
     setTrade((t) => ({ ...t, legs: t.legs.filter((_, idx) => idx !== i) }));
   }
 
@@ -78,19 +108,34 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
     return null;
   }
 
+  const [warning, setWarning] = useState<string | null>(null);
+  const [confirmedDespiteWarning, setConfirmedDespiteWarning] = useState(false);
+
   async function submit() {
     const clean = normalize(trade);
     const err = validate(clean);
     if (err) {
       setError(err);
-      // Scroll the form into view so the user notices the inline error
       try {
         document.querySelector('[data-form-error]')?.scrollIntoView({ behavior: "smooth", block: "center" });
-      } catch {}
+      } catch {
+        // ignore — scrollIntoView is a nice-to-have
+      }
       return;
+    }
+    if (!confirmedDespiteWarning) {
+      const idx = suspiciousPremiumLeg(clean);
+      if (idx != null) {
+        setWarning(
+          `Leg ${idx + 1} premium ($${clean.legs[idx].premium}) implies >250% IV — looks like a per-contract value. Divide by 100? Click "Save trade" again to keep as-is.`,
+        );
+        setConfirmedDespiteWarning(true);
+        return;
+      }
     }
     setBusy(true);
     setError(null);
+    setWarning(null);
     try {
       await onSave(clean);
     } catch (e) {
@@ -175,7 +220,7 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
 
       <div className="space-y-3">
         {trade.legs.map((leg, i) => (
-          <div key={i} className="card space-y-3">
+          <div key={leg.id ?? ensureKey(i)} className="card space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold">Leg {i + 1}</div>
               {trade.legs.length > 1 && (
@@ -224,6 +269,18 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
                   onChange={(e) => setLeg(i, { premium: +e.target.value })}
                 />
               </Field>
+              <Field label="IV (%) override">
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="auto"
+                  value={leg.iv != null ? +(leg.iv * 100).toFixed(2) : ""}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setLeg(i, { iv: v === "" ? null : +v / 100 });
+                  }}
+                />
+              </Field>
             </div>
             <Field label="Expiration">
               <ExpirationPicker
@@ -257,6 +314,12 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
           className="rounded-lg border border-loss/40 bg-loss/10 p-3 text-sm loss"
         >
           <strong>Can&rsquo;t save:</strong> {error}
+        </div>
+      )}
+
+      {warning && (
+        <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm warn">
+          <strong>Heads up:</strong> {warning}
         </div>
       )}
 

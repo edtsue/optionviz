@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useChatContext } from "@/lib/chat-context";
+import { stripFormatting } from "@/lib/strip-markdown";
 import { ClaudeMark } from "./ClaudeMark";
 
 interface Msg {
@@ -159,18 +160,6 @@ export function ChatLauncher() {
       )}
     </>
   );
-}
-
-function stripFormatting(s: string): string {
-  // Remove markdown fences and inline backticks; collapse extra blank lines
-  return s
-    .replace(/```[\w]*\n?/g, "")
-    .replace(/```/g, "")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function SuggestedPrompt({ text, onClick }: { text: string; onClick: (s: string) => void }) {

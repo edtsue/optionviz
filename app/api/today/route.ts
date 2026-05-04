@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { anthropic, REASONING_MODEL } from "@/lib/claude";
+import { TickerSchema } from "@/lib/api-validate";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -28,9 +31,6 @@ const SYSTEM_FALLBACK = `For EACH ticker (max 3), list up to 2 known catalysts f
 
 Output JSON ONLY: {"items":[{"ticker":"AAPL","items":[…]}], "fallback":true}`;
 
-interface Body {
-  tickers: string[];
-}
 interface ContentBlock {
   type: string;
   text?: string;
@@ -106,18 +106,26 @@ function tryParse(raw: string): unknown | null {
   }
 }
 
+const BodySchema = z.object({
+  tickers: z.array(TickerSchema).min(1).max(MAX_TICKERS),
+});
+
 export async function POST(req: NextRequest) {
   try {
-    const { tickers } = (await req.json()) as Body;
-    if (!Array.isArray(tickers) || tickers.length === 0) {
-      return NextResponse.json({ error: "Pick 1–3 tickers" }, { status: 400 });
+    const rl = rateLimit(`today:${clientIp(req)}`, 10, 60 * 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: "rate limited (per-hour)" }, { status: 429 });
     }
-    if (tickers.length > MAX_TICKERS) {
+
+    const raw = (await req.json().catch(() => ({}))) as unknown;
+    const parsedReq = BodySchema.safeParse(raw);
+    if (!parsedReq.success) {
       return NextResponse.json(
-        { error: `Maximum ${MAX_TICKERS} tickers per request` },
+        { error: parsedReq.error.issues[0]?.message ?? `Pick 1–${MAX_TICKERS} valid tickers` },
         { status: 400 },
       );
     }
+    const { tickers } = parsedReq.data;
 
     const userMsg = `Tickers: ${tickers.join(", ")}. Return JSON only.`;
 

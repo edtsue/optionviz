@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { anthropic, REASONING_MODEL } from "@/lib/claude";
-import type { PortfolioSnapshot } from "@/types/portfolio";
+import { parseClaudeJsonRaw } from "@/lib/claude-json";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,9 +21,46 @@ Return ONLY JSON matching:
 { "summary": string, "concentrationRisk": string, "diversification": string, "notableObservations": string[], "recommendations": [...], "ideas": [...], "events": [...] }
 No markdown.`;
 
+const HoldingSchema = z.object({
+  symbol: z.string().max(60),
+  name: z.string().max(120).nullable().optional(),
+  quantity: z.number().finite(),
+  costBasis: z.number().finite().nullable().optional(),
+  marketPrice: z.number().finite().nullable().optional(),
+  marketValue: z.number().finite().nullable().optional(),
+  unrealizedPnL: z.number().finite().nullable().optional(),
+  unrealizedPnLPct: z.number().finite().nullable().optional(),
+  assetType: z.enum(["stock", "etf", "option", "cash", "other"]).nullable().optional(),
+  iv: z.number().finite().nullable().optional(),
+  delta: z.number().finite().nullable().optional(),
+  extras: z.record(z.union([z.string(), z.number(), z.null()])).nullable().optional(),
+});
+
+const PortfolioRequestSchema = z.object({
+  totalValue: z.number().finite().nullable().optional(),
+  cashBalance: z.number().finite().nullable().optional(),
+  asOf: z.string().nullable().optional(),
+  uploadedAt: z.string().nullable().optional(),
+  holdings: z.array(HoldingSchema).max(500),
+});
+
 export async function POST(req: NextRequest) {
   try {
-    const portfolio = (await req.json()) as PortfolioSnapshot;
+    const rl = rateLimit(`analyze-portfolio:${clientIp(req)}`, 10, 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: "rate limited" }, { status: 429 });
+    }
+
+    const raw = await req.json().catch(() => ({}));
+    const parsed = PortfolioRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "invalid portfolio" },
+        { status: 400 },
+      );
+    }
+    const portfolio = parsed.data;
+
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
       max_tokens: 1800,
@@ -37,8 +76,7 @@ export async function POST(req: NextRequest) {
       .filter((c) => c.type === "text")
       .map((c) => (c as { text: string }).text)
       .join("\n");
-    const cleaned = text.replace(/```json|```/g, "").trim();
-    const analysis = JSON.parse(cleaned);
+    const analysis = parseClaudeJsonRaw(text) ?? {};
     return NextResponse.json({ analysis });
   } catch (err) {
     console.error("[analyze-portfolio] failed:", err);

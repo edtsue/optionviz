@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, REASONING_MODEL } from "@/lib/claude";
+import { ALLOWED_MEDIA_TYPES, MAX_IMAGE_BASE64_LEN } from "@/lib/api-validate";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,64 +23,83 @@ When relevant to the user's holdings or trades, proactively flag upcoming cataly
 
 Stay focused on options, equities, payoff structures, Greeks, IV, and risk. Decline politely if asked something outside that scope.`;
 
-interface ImageBlock {
-  type: "image";
-  source: { type: "base64"; media_type: string; data: string };
-}
-interface TextBlock {
-  type: "text";
-  text: string;
-}
-type Content = string | Array<TextBlock | ImageBlock>;
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: Content;
-}
-interface ChatRequest {
-  messages: ChatMessage[];
-  context?: unknown;
-}
+const TextBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string().max(20_000),
+});
+const ImageBlockSchema = z.object({
+  type: z.literal("image"),
+  source: z.object({
+    type: z.literal("base64"),
+    media_type: z.enum(ALLOWED_MEDIA_TYPES),
+    data: z.string().max(MAX_IMAGE_BASE64_LEN),
+  }),
+});
+const ContentSchema = z.union([z.string().max(20_000), z.array(z.union([TextBlockSchema, ImageBlockSchema])).max(8)]);
+const MessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: ContentSchema,
+});
+const ChatRequestSchema = z.object({
+  messages: z.array(MessageSchema).min(1).max(20),
+  context: z.unknown().optional(),
+});
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, context } = (await req.json()) as ChatRequest;
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json({ error: "messages required" }, { status: 400 });
+    const rl = rateLimit(`chat:${clientIp(req)}`, 60, 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: "rate limited" }, { status: 429 });
     }
 
-    // Inject the current view as a single short system-style message at the top
-    // of the user thread to keep token usage tight.
-    const trimmed = messages.slice(-12);
-    const contextMessage: ChatMessage[] = context
-      ? [
-          {
-            role: "user",
-            content: `Current view (JSON):\n${JSON.stringify(context)}`,
-          },
-          {
-            role: "assistant",
-            content: "Got it — I'll keep that in mind.",
-          },
-        ]
-      : [];
+    const raw = await req.json().catch(() => ({}));
+    const parsed = ChatRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "invalid request" },
+        { status: 400 },
+      );
+    }
+    const { messages, context } = parsed.data;
 
-    // The SDK accepts mixed content arrays directly; cast through unknown for
-    // the image-block type which the SDK types as a union we may not match
-    // exactly.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const trimmed = messages.slice(-12);
+    const sdkMessages: Anthropic.MessageParam[] = trimmed.map((m) => ({
+      role: m.role,
+      content:
+        typeof m.content === "string"
+          ? m.content
+          : m.content.map((b) =>
+              b.type === "text"
+                ? { type: "text" as const, text: b.text }
+                : {
+                    type: "image" as const,
+                    source: {
+                      type: "base64" as const,
+                      media_type: b.source.media_type,
+                      data: b.source.data,
+                    },
+                  },
+            ),
+    }));
+
+    const contextMessages: Anthropic.MessageParam[] =
+      context !== undefined
+        ? [
+            { role: "user", content: `Current view (JSON):\n${JSON.stringify(context).slice(0, 50_000)}` },
+            { role: "assistant", content: "Got it — I'll keep that in mind." },
+          ]
+        : [];
+
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
       max_tokens: 800,
       system: SYSTEM,
-      messages: [...contextMessage, ...trimmed],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+      messages: [...contextMessages, ...sdkMessages],
+    });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const blocks: any[] = resp.content ?? [];
-    const text = blocks
-      .filter((c) => c.type === "text")
-      .map((c) => c.text ?? "")
+    const text = resp.content
+      .filter((c): c is Anthropic.TextBlock => c.type === "text")
+      .map((c) => c.text)
       .join("\n");
 
     return NextResponse.json({ reply: text });

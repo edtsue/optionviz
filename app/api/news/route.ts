@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropic, REASONING_MODEL } from "@/lib/claude";
-import type { Trade } from "@/types/trade";
+import { TradePayloadSchema } from "@/lib/trade-schema";
+import { parseClaudeJsonRaw } from "@/lib/claude-json";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -18,7 +20,21 @@ CRITICAL: Return ONLY the JSON object. No markdown fences, no prose, no headings
 
 export async function POST(req: NextRequest) {
   try {
-    const trade = (await req.json()) as Trade;
+    const rl = rateLimit(`news:${clientIp(req)}`, 30, 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: "rate limited" }, { status: 429 });
+    }
+
+    const raw = await req.json().catch(() => ({}));
+    const parsed = TradePayloadSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "invalid trade" },
+        { status: 400 },
+      );
+    }
+    const trade = parsed.data;
+
     const summary = {
       symbol: trade.symbol,
       underlying: trade.underlyingPrice,
@@ -41,9 +57,10 @@ export async function POST(req: NextRequest) {
       .filter((c) => c.type === "text")
       .map((c) => (c as { text: string }).text)
       .join("\n");
-    const cleaned = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    const events = Array.isArray(parsed) ? parsed : parsed.events ?? [];
+    const rawParsed = parseClaudeJsonRaw(text);
+    const events = Array.isArray(rawParsed)
+      ? rawParsed
+      : ((rawParsed as { events?: unknown[] } | null)?.events ?? []);
     return NextResponse.json({ events });
   } catch (err) {
     console.error("[news] failed:", err);
