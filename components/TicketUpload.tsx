@@ -14,6 +14,7 @@ interface ParsedTicket {
     premium: number | null;
   }>;
   notes?: string | null;
+  ticketImagePath?: string | null;
   /** Names of fields that the parser couldn't read — surfaced to the user. */
   missingFields?: string[];
 }
@@ -63,23 +64,42 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
     setError(null);
     try {
       const base64 = staged.dataUrl.split(",")[1];
-      const res = await fetch("/api/parse-ticket", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mediaType: staged.mediaType }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? `Parse failed (${res.status})`);
+      const payload = JSON.stringify({ imageBase64: base64, mediaType: staged.mediaType });
+
+      const [parseRes, uploadRes] = await Promise.all([
+        fetch("/api/parse-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        }),
+        fetch("/api/upload-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        }),
+      ]);
+
+      if (!parseRes.ok) {
+        const j = await parseRes.json().catch(() => ({}));
+        throw new Error(j.error ?? `Parse failed (${parseRes.status})`);
       }
-      const parsed = (await res.json()) as ParsedTicket;
+      const parsed = (await parseRes.json()) as ParsedTicket;
+
+      let ticketImagePath: string | null = null;
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        ticketImagePath = uploadData.path ?? null;
+      } else {
+        console.warn("[TicketUpload] storage upload failed — ticket will not be saved to cloud");
+      }
+
       const missing: string[] = [];
       parsed.legs.forEach((l, i) => {
         if (l.quantity == null) missing.push(`leg ${i + 1} quantity`);
         if (l.strike == null) missing.push(`leg ${i + 1} strike`);
         if (l.premium == null) missing.push(`leg ${i + 1} premium`);
       });
-      onParsed({ ...parsed, missingFields: missing });
+      onParsed({ ...parsed, ticketImagePath, missingFields: missing });
       setStaged(null);
       if (missing.length) {
         setError(`Parser couldn't read: ${missing.join(", ")}. Please confirm before saving.`);
