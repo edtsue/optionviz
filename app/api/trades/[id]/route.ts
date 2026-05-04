@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { deleteTrade, getTrade, updateUnderlyingPrice } from "@/lib/trades-repo";
 
 export const runtime = "nodejs";
+
+const PatchSchema = z.object({
+  underlyingPrice: z.number().finite().positive().max(1_000_000),
+  expectedUpdatedAt: z.string().optional(),
+});
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -12,12 +18,21 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = (await req.json().catch(() => ({}))) as { underlyingPrice?: number };
-  if (typeof body.underlyingPrice !== "number" || !isFinite(body.underlyingPrice) || body.underlyingPrice <= 0) {
-    return NextResponse.json({ error: "underlyingPrice must be a positive number" }, { status: 400 });
+  const body = await req.json().catch(() => ({}));
+  const parsed = PatchSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "invalid request" },
+      { status: 400 },
+    );
   }
-  const trade = await updateUnderlyingPrice(id, body.underlyingPrice);
+  const { trade, stale } = await updateUnderlyingPrice(
+    id,
+    parsed.data.underlyingPrice,
+    parsed.data.expectedUpdatedAt,
+  );
   if (!trade) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (stale) return NextResponse.json({ trade, stale: true }, { status: 409 });
   return NextResponse.json({ trade });
 }
 

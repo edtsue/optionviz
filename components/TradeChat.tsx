@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
-import { netGreeks, tradeStats } from "@/lib/payoff";
+import { perShareGreeks, tradeStats } from "@/lib/payoff";
 import { resizeImage } from "@/lib/image";
+import { stripFormatting } from "@/lib/strip-markdown";
 import { ClaudeMark } from "./ClaudeMark";
 
 interface ImageBlock {
@@ -329,7 +330,7 @@ function buildContext(trade: Trade) {
   let stats, greeks;
   try {
     stats = tradeStats(trade);
-    greeks = netGreeks(trade);
+    greeks = perShareGreeks(trade);
   } catch {
     stats = undefined;
     greeks = undefined;
@@ -360,24 +361,15 @@ function buildContext(trade: Trade) {
             popPct: stats.pop != null ? Math.round(stats.pop * 100) : null,
           }
         : null,
-      netGreeks: greeks
+      // Per-share Greeks (broker-comparable units): delta in [-1, 1], theta/vega in $/share.
+      perShareGreeks: greeks
         ? {
-            delta: +(greeks.delta / 100).toFixed(4),
-            theta: +greeks.theta.toFixed(2),
-            vega: +greeks.vega.toFixed(2),
+            delta: +greeks.delta.toFixed(4),
+            theta: +greeks.theta.toFixed(4),
+            vega: +greeks.vega.toFixed(4),
           }
         : null,
     },
   };
 }
 
-function stripFormatting(s: string): string {
-  return s
-    .replace(/```[\w]*\n?/g, "")
-    .replace(/```/g, "")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}

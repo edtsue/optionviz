@@ -1,11 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
 import { fillImpliedVolsForTrade, netGreeks, tradeStats } from "@/lib/payoff";
 import { detectStrategy } from "@/lib/strategies";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
+import { notifyTradesChanged } from "@/components/Sidebar";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useRegisterChatContext } from "@/lib/chat-context";
 import type { Trade } from "@/types/trade";
 
@@ -53,43 +55,49 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
   const [spotStatus, setSpotStatus] = useState<{ updating: boolean; asOf?: string; error?: string }>({
     updating: false,
   });
-  const strategy = detectStrategy(trade);
-  const greeks = netGreeks(trade);
-  const stats = tradeStats(trade);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const strategy = useMemo(() => detectStrategy(trade), [trade]);
+  const greeks = useMemo(() => netGreeks(trade), [trade]);
+  const stats = useMemo(() => tradeStats(trade), [trade]);
 
-  useRegisterChatContext(`Trade: ${trade.symbol} ${strategy.label}`, {
-    symbol: trade.symbol,
-    underlyingPrice: trade.underlyingPrice,
-    strategy: strategy.label,
-    bias: strategy.bias,
-    legs: trade.legs.map((l) => ({
-      side: l.side,
-      type: l.type,
-      strike: l.strike,
-      expiration: l.expiration,
-      qty: l.quantity,
-      premium: l.premium,
-      iv: l.iv,
-    })),
-    underlying: trade.underlying,
-    netGreeks: {
-      delta: +greeks.delta.toFixed(2),
-      gamma: +greeks.gamma.toFixed(4),
-      theta: +greeks.theta.toFixed(2),
-      vega: +greeks.vega.toFixed(2),
-    },
-    stats: {
-      maxProfit: stats.maxProfit,
-      maxLoss: stats.maxLoss,
-      breakevens: stats.breakevens,
-      cost: stats.cost,
-      pop: stats.pop,
-    },
-  });
+  const chatLabel = `Trade: ${trade.symbol} ${strategy.label}`;
+  const chatData = useMemo(
+    () => ({
+      symbol: trade.symbol,
+      underlyingPrice: trade.underlyingPrice,
+      strategy: strategy.label,
+      bias: strategy.bias,
+      legs: trade.legs.map((l) => ({
+        side: l.side,
+        type: l.type,
+        strike: l.strike,
+        expiration: l.expiration,
+        qty: l.quantity,
+        premium: l.premium,
+        iv: l.iv,
+      })),
+      underlying: trade.underlying,
+      netGreeks: {
+        delta: +greeks.delta.toFixed(2),
+        gamma: +greeks.gamma.toFixed(4),
+        theta: +greeks.theta.toFixed(2),
+        vega: +greeks.vega.toFixed(2),
+      },
+      stats: {
+        maxProfit: stats.maxProfit,
+        maxLoss: stats.maxLoss,
+        breakevens: stats.breakevens,
+        cost: stats.cost,
+        pop: stats.pop,
+      },
+    }),
+    [trade, strategy, greeks, stats],
+  );
+  useRegisterChatContext(chatLabel, chatData);
 
   async function onDelete() {
-    if (!confirm("Delete this trade?")) return;
     await tradesClient.remove(tradeId);
+    notifyTradesChanged();
     router.push("/");
   }
 
@@ -97,9 +105,17 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     setSpotStatus({ updating: true });
     try {
       const { price, asOf } = await tradesClient.fetchSpot(trade.symbol);
-      const updated = await tradesClient.updateSpot(tradeId, price);
+      const { trade: updated, stale } = await tradesClient.updateSpot(
+        tradeId,
+        price,
+        trade.updatedAt,
+      );
       setTrade(fillImpliedVolsForTrade(updated));
-      setSpotStatus({ updating: false, asOf });
+      setSpotStatus({
+        updating: false,
+        asOf,
+        error: stale ? "Refreshed — another change happened first" : undefined,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "update failed";
       setSpotStatus({ updating: false, error: msg });
@@ -131,9 +147,24 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           >
             {spotStatus.updating ? "Updating…" : "Update spot"}
           </button>
-          <button onClick={onDelete} className="btn-danger rounded-lg px-3 py-1.5 text-sm">
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="btn-danger rounded-lg px-3 py-1.5 text-sm"
+          >
             Delete
           </button>
+          <ConfirmDialog
+            open={confirmDelete}
+            title="Delete this trade?"
+            body={`${trade.symbol} · ${trade.legs.length} leg${trade.legs.length === 1 ? "" : "s"}. This can't be undone.`}
+            confirmLabel="Delete"
+            destructive
+            onConfirm={() => {
+              setConfirmDelete(false);
+              onDelete();
+            }}
+            onCancel={() => setConfirmDelete(false)}
+          />
         </div>
       </header>
 
@@ -144,7 +175,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         <div className="grid gap-1.5 text-sm data-grid">
           {trade.legs.map((l, i) => (
             <div
-              key={i}
+              key={l.id ?? `${l.type}-${l.side}-${l.strike}-${l.expiration}-${i}`}
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-white/[0.02] px-2 py-1.5"
             >
               <div className="flex items-center gap-2">

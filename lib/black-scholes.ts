@@ -44,7 +44,9 @@ export interface Greeks {
 export function bs({ S, K, T, r, sigma, type, q = 0 }: BSInputs): Greeks {
   if (T <= 0 || sigma <= 0) {
     const intrinsic = type === "call" ? Math.max(S - K, 0) : Math.max(K - S, 0);
-    return { price: intrinsic, delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
+    // Step-function delta at expiry: ITM = ±1, OTM/ATM = 0.
+    const delta = type === "call" ? (S > K ? 1 : 0) : S < K ? -1 : 0;
+    return { price: intrinsic, delta, gamma: 0, theta: 0, vega: 0, rho: 0 };
   }
   const sqrtT = Math.sqrt(T);
   const d1 = (Math.log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrtT);
@@ -76,7 +78,8 @@ export function bs({ S, K, T, r, sigma, type, q = 0 }: BSInputs): Greeks {
   return { price, delta, gamma, theta: theta / 365, vega: vega / 100, rho: rho / 100 };
 }
 
-// Implied volatility via bisection on price.
+// Implied volatility via bisection on price. Returns null when the input is
+// outside no-arbitrage bounds or when bisection fails to converge.
 export function impliedVol(
   marketPrice: number,
   S: number,
@@ -86,17 +89,30 @@ export function impliedVol(
   type: "call" | "put",
   q = 0,
 ): number | null {
-  if (marketPrice <= 0 || T <= 0) return null;
-  let lo = 0.0001;
-  let hi = 5;
+  if (!(marketPrice > 0) || !(T > 0) || !(S > 0) || !(K > 0)) return null;
+  // No-arbitrage bounds: option price is bounded below by intrinsic of the
+  // forward and above by the underlying (call) / strike-pv (put).
+  const intrinsic =
+    type === "call"
+      ? Math.max(S * Math.exp(-q * T) - K * Math.exp(-r * T), 0)
+      : Math.max(K * Math.exp(-r * T) - S * Math.exp(-q * T), 0);
+  const upper = type === "call" ? S * Math.exp(-q * T) : K * Math.exp(-r * T);
+  if (marketPrice < intrinsic - 1e-6) return null;
+  if (marketPrice > upper + 1e-6) return null;
+
+  let lo = 1e-4;
+  let hi = 3; // 300% IV is already absurd
+  let mid = 0.5 * (lo + hi);
   for (let i = 0; i < 100; i++) {
-    const mid = 0.5 * (lo + hi);
+    mid = 0.5 * (lo + hi);
     const { price } = bs({ S, K, T, r, sigma: mid, type, q });
     if (Math.abs(price - marketPrice) < 1e-4) return mid;
     if (price > marketPrice) hi = mid;
     else lo = mid;
   }
-  return 0.5 * (lo + hi);
+  // Verify the final answer is close enough; otherwise admit defeat.
+  const { price: finalPrice } = bs({ S, K, T, r, sigma: mid, type, q });
+  return Math.abs(finalPrice - marketPrice) < 1e-3 ? mid : null;
 }
 
 export function yearsBetween(from: Date, to: Date): number {

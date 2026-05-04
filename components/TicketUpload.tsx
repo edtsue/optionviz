@@ -8,12 +8,14 @@ interface ParsedTicket {
   legs: Array<{
     type: "call" | "put";
     side: "long" | "short";
-    strike: number;
+    strike: number | null;
     expiration: string;
-    quantity: number;
-    premium: number;
+    quantity: number | null;
+    premium: number | null;
   }>;
   notes?: string | null;
+  /** Names of fields that the parser couldn't read — surfaced to the user. */
+  missingFields?: string[];
 }
 
 interface Staged {
@@ -71,8 +73,17 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
         throw new Error(j.error ?? `Parse failed (${res.status})`);
       }
       const parsed = (await res.json()) as ParsedTicket;
-      onParsed(parsed);
+      const missing: string[] = [];
+      parsed.legs.forEach((l, i) => {
+        if (l.quantity == null) missing.push(`leg ${i + 1} quantity`);
+        if (l.strike == null) missing.push(`leg ${i + 1} strike`);
+        if (l.premium == null) missing.push(`leg ${i + 1} premium`);
+      });
+      onParsed({ ...parsed, missingFields: missing });
       setStaged(null);
+      if (missing.length) {
+        setError(`Parser couldn't read: ${missing.join(", ")}. Please confirm before saving.`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse ticket");
     } finally {
@@ -202,13 +213,4 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
       {error && <div className="text-sm text-loss">{error}</div>}
     </div>
   );
-}
-
-function fileToDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }

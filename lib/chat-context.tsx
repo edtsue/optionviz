@@ -27,20 +27,24 @@ export function useChatContext() {
   return v;
 }
 
-// Hook: pages call this to register their current state with the chat.
-// Auto-cleared on unmount or when deps change.
+// Hook: pages call this to register their current state with the chat. Pass a
+// stable `data` reference (memoize at the call site) — this hook does not deep-
+// compare. Auto-cleared on unmount.
 export function useRegisterChatContext(label: string, data: unknown) {
   const ctx = useChatContext();
-  const ref = useRef(0);
+  const counter = useRef(0);
   useEffect(() => {
     ctx.setContext(label, data);
+    const myId = ++counter.current;
+    const counterRef = counter;
     return () => {
-      // Only clear if no one else has set context after us
-      const id = ++ref.current;
       queueMicrotask(() => {
-        if (id === ref.current) ctx.clearContext();
+        if (myId === counterRef.current) ctx.clearContext();
       });
     };
+    // ctx is stable from Provider (no useMemo needed since Provider state only
+    // changes via setContext/clearContext — re-running the effect when ctx
+    // changes would be a real signal).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [label, JSON.stringify(data)]);
+  }, [label, data]);
 }

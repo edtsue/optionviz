@@ -21,11 +21,43 @@ interface NewsResponse {
   fallback?: boolean;
 }
 
-const CACHE_KEY = "optionviz.today.v1";
+// v2 — keyed by sorted-ticker-set so switching selections doesn't show stale
+// news from a different basket. Each entry: { news, timestamp }.
+const CACHE_KEY = "optionviz.today.v2";
 const PORTFOLIO_KEY = "optionviz.portfolio.v1";
 const SELECTED_KEY = "optionviz.today.selected";
 const MANUAL_KEY = "optionviz.today.manual-tickers";
 const MAX_SELECTED = 3;
+
+function cacheKeyFor(tickers: string[]): string {
+  return [...tickers].map((t) => t.toUpperCase()).sort().join(",");
+}
+
+function readCache(tickers: string[]): { news: NewsResponse; timestamp: number } | null {
+  if (!tickers.length) return null;
+  try {
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}") as Record<
+      string,
+      { news: NewsResponse; timestamp: number }
+    >;
+    return all[cacheKeyFor(tickers)] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(tickers: string[], entry: { news: NewsResponse; timestamp: number }): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}") as Record<
+      string,
+      { news: NewsResponse; timestamp: number }
+    >;
+    all[cacheKeyFor(tickers)] = entry;
+    localStorage.setItem(CACHE_KEY, JSON.stringify(all));
+  } catch {
+    // ignore — cache is best-effort
+  }
+}
 
 export default function TodayPage() {
   const [available, setAvailable] = useState<string[]>([]);
@@ -37,19 +69,27 @@ export default function TodayPage() {
   const [lastFetch, setLastFetch] = useState<number | null>(null);
 
   useEffect(() => {
-    try {
-      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "null");
-      if (cached?.news) setNews(cached.news);
-      if (cached?.timestamp) setLastFetch(cached.timestamp);
-    } catch {}
+    let initialSel: string[] = [];
     try {
       const savedSel = JSON.parse(localStorage.getItem(SELECTED_KEY) ?? "[]");
-      if (Array.isArray(savedSel)) setSelected(savedSel.slice(0, MAX_SELECTED));
-    } catch {}
+      if (Array.isArray(savedSel)) {
+        initialSel = savedSel.slice(0, MAX_SELECTED);
+        setSelected(initialSel);
+      }
+    } catch {
+      // ignore
+    }
     try {
       const saved = localStorage.getItem(MANUAL_KEY) ?? "";
       if (saved) setManualInput(saved);
-    } catch {}
+    } catch {
+      // ignore
+    }
+    const cached = readCache(initialSel);
+    if (cached) {
+      setNews(cached.news);
+      setLastFetch(cached.timestamp);
+    }
 
     async function gather() {
       const set = new Set<string>();
@@ -92,30 +132,43 @@ export default function TodayPage() {
       if (isSel) {
         next = cur.filter((t) => t !== ticker);
       } else if (cur.length >= MAX_SELECTED) {
-        // Already at cap — replace oldest
         next = [...cur.slice(1), ticker];
       } else {
         next = [...cur, ticker];
       }
       try {
         localStorage.setItem(SELECTED_KEY, JSON.stringify(next));
-      } catch {}
+      } catch {
+        // ignore
+      }
+      // Swap displayed news to whatever's cached for the new selection (or
+      // clear if nothing is cached) so users don't see stale results from a
+      // different basket.
+      const cached = readCache(next);
+      setNews(cached?.news ?? null);
+      setLastFetch(cached?.timestamp ?? null);
       return next;
     });
   }
 
   function clearSelected() {
     setSelected([]);
+    setNews(null);
+    setLastFetch(null);
     try {
       localStorage.setItem(SELECTED_KEY, "[]");
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
 
   function onManualChange(v: string) {
     setManualInput(v);
     try {
       localStorage.setItem(MANUAL_KEY, v);
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
 
   async function fetchNews() {
@@ -136,9 +189,7 @@ export default function TodayPage() {
       setNews(data);
       const now = Date.now();
       setLastFetch(now);
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ news: data, timestamp: now }));
-      } catch {}
+      writeCache(selected, { news: data, timestamp: now });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createTrade, listTrades } from "@/lib/trades-repo";
+import { TradePayloadSchema } from "@/lib/trade-schema";
 import type { Trade } from "@/types/trade";
 
 export const runtime = "nodejs";
@@ -16,8 +17,15 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const trade = (await req.json()) as Trade;
-    const id = await createTrade(trade);
+    const raw = await req.json().catch(() => ({}));
+    const parsed = TradePayloadSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "invalid trade" },
+        { status: 400 },
+      );
+    }
+    const id = await createTrade(parsed.data as Trade);
     return NextResponse.json({ id });
   } catch (err) {
     console.error("[api/trades] create failed:", err);

@@ -2,47 +2,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
-import { localStore } from "@/lib/local-store";
 import { detectStrategy } from "@/lib/strategies";
 import type { Trade } from "@/types/trade";
 
 export default function HomePage() {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [migrating, setMigrating] = useState(false);
-  const [hasLocal, setHasLocal] = useState(0);
-
-  async function refresh() {
-    try {
-      setTrades(await tradesClient.list());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load trades");
-    }
-  }
 
   useEffect(() => {
-    refresh();
-    setHasLocal(localStore.list().length);
+    tradesClient
+      .list()
+      .then((t) => {
+        setTrades(t);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load trades"));
   }, []);
-
-  async function migrateLocal() {
-    setMigrating(true);
-    try {
-      const local = localStore.list();
-      for (const t of local) {
-        const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = t;
-        await tradesClient.create(rest as Trade);
-      }
-      for (const t of local) if (t.id) localStore.remove(t.id);
-      setHasLocal(0);
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Migration failed");
-    } finally {
-      setMigrating(false);
-    }
-  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
@@ -61,17 +36,6 @@ export default function HomePage() {
       {error && (
         <div className="card border-loss/40">
           <p className="text-sm loss">{error}</p>
-        </div>
-      )}
-
-      {hasLocal > 0 && (
-        <div className="card flex flex-wrap items-center justify-between gap-3 border-accent/30">
-          <p className="text-sm">
-            <span className="kpi-xs">{hasLocal}</span> trade{hasLocal === 1 ? "" : "s"} saved locally before Supabase was connected.
-          </p>
-          <button onClick={migrateLocal} disabled={migrating} className="btn-primary rounded-lg px-3 py-1.5 text-sm">
-            {migrating ? "Migrating…" : "Move to Supabase"}
-          </button>
         </div>
       )}
 

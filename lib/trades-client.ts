@@ -43,18 +43,26 @@ export const tradesClient = {
     return data.id as string;
   },
 
-  async updateSpot(id: string, underlyingPrice: number): Promise<Trade> {
+  async updateSpot(
+    id: string,
+    underlyingPrice: number,
+    expectedUpdatedAt?: string,
+  ): Promise<{ trade: Trade; stale?: boolean }> {
     const res = await fetch(`/api/trades/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ underlyingPrice }),
+      body: JSON.stringify({ underlyingPrice, expectedUpdatedAt }),
     });
+    if (res.status === 409) {
+      const data = await res.json();
+      return { trade: data.trade as Trade, stale: true };
+    }
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       throw new Error(j.error ?? `Update spot failed (HTTP ${res.status})`);
     }
     const data = await res.json();
-    return data.trade as Trade;
+    return { trade: data.trade as Trade };
   },
 
   async fetchSpot(symbol: string): Promise<{ price: number; asOf: string; source: string | null }> {

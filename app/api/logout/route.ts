@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
+import { COOKIE_NAME } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 export async function POST() {
   const res = NextResponse.json({ ok: true });
   res.cookies.set({
-    name: "ov-auth",
+    name: COOKIE_NAME,
     value: "",
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     sameSite: "lax",
     path: "/",
     maxAge: 0,

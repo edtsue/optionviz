@@ -32,41 +32,49 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
     );
   }, [trade]);
 
-  const data = useMemo(() => {
+  // Trade-only computations: IV fill, stats, KPIs, base payoff, σ-band — these
+  // don't depend on the time slider and shouldn't recompute on each scrub.
+  const base = useMemo(() => {
     if (!ready) return null;
     const filled = fillImpliedVolsForTrade(trade);
     const strategy = detectStrategy(filled);
     const stats = tradeStats(filled);
     const kpis = strategyKPIs(filled);
-
     const lastExpiry = new Date(
       Math.max(...filled.legs.map((l) => new Date(l.expiration).getTime())),
     );
-    const now = new Date();
-    const targetDate = new Date(now.getTime() + dayProgress * (lastExpiry.getTime() - now.getTime()));
-    const dteAtTarget = yearsBetween(targetDate, lastExpiry) * 365;
-
     const fullPayoff = buildPayoff(filled);
-    const customSeries: PayoffPoint[] = fullPayoff.map((p) => ({
-      ...p,
-      mid: +totalPnL(filled, p.spot, targetDate).toFixed(2),
-    }));
-    const greeksAtTarget = perShareGreeks(filled, targetDate);
-
-    // 1σ band at expiry from average leg IV (lognormal terminal price)
+    const now = new Date();
     const T = yearsBetween(now, lastExpiry);
     const ivs = filled.legs.map((l) => l.iv ?? 0.3);
     const sigma = ivs.reduce((a, b) => a + b, 0) / Math.max(ivs.length, 1);
     const oneSigmaBand: [number, number] | null =
       T > 0 && sigma > 0
-        ? [
-            +(filled.underlyingPrice * Math.exp(-sigma * Math.sqrt(T))).toFixed(2),
-            +(filled.underlyingPrice * Math.exp(sigma * Math.sqrt(T))).toFixed(2),
-          ]
+        ? (() => {
+            const drift = (filled.riskFreeRate - 0.5 * sigma * sigma) * T;
+            const center = filled.underlyingPrice * Math.exp(drift);
+            const w = sigma * Math.sqrt(T);
+            return [+(center * Math.exp(-w)).toFixed(2), +(center * Math.exp(w)).toFixed(2)];
+          })()
         : null;
+    return { filled, strategy, stats, kpis, fullPayoff, lastExpiry, oneSigmaBand };
+  }, [trade, ready]);
 
-    return { filled, strategy, stats, kpis, customSeries, dteAtTarget, greeksAtTarget, oneSigmaBand };
-  }, [trade, ready, dayProgress]);
+  // Slider-dependent: recompute the "mid" curve and per-share greeks at target.
+  const data = useMemo(() => {
+    if (!base) return null;
+    const now = new Date();
+    const targetDate = new Date(
+      now.getTime() + dayProgress * (base.lastExpiry.getTime() - now.getTime()),
+    );
+    const dteAtTarget = yearsBetween(targetDate, base.lastExpiry) * 365;
+    const customSeries: PayoffPoint[] = base.fullPayoff.map((p) => ({
+      ...p,
+      mid: +totalPnL(base.filled, p.spot, targetDate).toFixed(2),
+    }));
+    const greeksAtTarget = perShareGreeks(base.filled, targetDate);
+    return { ...base, customSeries, dteAtTarget, greeksAtTarget };
+  }, [base, dayProgress]);
 
   if (!ready || !data) {
     return (

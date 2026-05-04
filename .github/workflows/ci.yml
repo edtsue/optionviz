@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:run
+      - run: npm run build
+        env:
+          # Build needs SUPABASE_SERVICE_ROLE_KEY only at runtime; defaults so the
+          # bundle compiles. Real values are injected by Vercel for deploys.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'ci-placeholder' }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'ci-placeholder' }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'ci-placeholder' }}
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD || 'ci-placeholder' }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'ci-placeholder-min-32-chars-aaaaaaaaaaaa' }}

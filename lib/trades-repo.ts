@@ -1,4 +1,4 @@
-import { supabaseServer } from "./supabase/server";
+import { supabaseAdmin } from "./supabase/admin.server";
 import type { Trade } from "@/types/trade";
 
 interface TradeRow {
@@ -57,7 +57,7 @@ function rowsToTrade(t: TradeRow, legs: LegRow[]): Trade {
 }
 
 export async function listTrades(): Promise<Trade[]> {
-  const sb = supabaseServer();
+  const sb = supabaseAdmin();
   const { data: trades, error } = await sb
     .from("trades")
     .select("*")
@@ -71,7 +71,7 @@ export async function listTrades(): Promise<Trade[]> {
 }
 
 export async function getTrade(id: string): Promise<Trade | null> {
-  const sb = supabaseServer();
+  const sb = supabaseAdmin();
   const { data: trade, error } = await sb.from("trades").select("*").eq("id", id).single();
   if (error || !trade) return null;
   const { data: legs } = await sb.from("legs").select("*").eq("trade_id", id);
@@ -89,7 +89,7 @@ function pgErr(err: unknown, fallback: string): Error {
 }
 
 export async function createTrade(trade: Trade): Promise<string> {
-  const sb = supabaseServer();
+  const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("trades")
     .insert({
@@ -132,21 +132,31 @@ export async function createTrade(trade: Trade): Promise<string> {
   return tradeId;
 }
 
-export async function updateUnderlyingPrice(id: string, price: number): Promise<Trade | null> {
-  const sb = supabaseServer();
-  const { error } = await sb
+export async function updateUnderlyingPrice(
+  id: string,
+  price: number,
+  expectedUpdatedAt?: string,
+): Promise<{ trade: Trade | null; stale?: boolean }> {
+  const sb = supabaseAdmin();
+  const query = sb
     .from("trades")
-    .update({ underlying_price: price })
+    .update({ underlying_price: price, updated_at: new Date().toISOString() })
     .eq("id", id);
+  if (expectedUpdatedAt) query.eq("updated_at", expectedUpdatedAt);
+  const { data, error } = await query.select("id");
   if (error) {
     console.error("trades.update underlying_price failed:", error);
     throw pgErr(error, "Update underlying price failed");
   }
-  return getTrade(id);
+  if (expectedUpdatedAt && (!data || data.length === 0)) {
+    // Row exists but updated_at didn't match → someone else wrote first.
+    return { trade: await getTrade(id), stale: true };
+  }
+  return { trade: await getTrade(id) };
 }
 
 export async function deleteTrade(id: string): Promise<void> {
-  const sb = supabaseServer();
+  const sb = supabaseAdmin();
   const { error } = await sb.from("trades").delete().eq("id", id);
   if (error) {
     console.error("trades.delete failed:", error);
