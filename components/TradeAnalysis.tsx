@@ -151,7 +151,6 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         scrubSpot={scrubSpot}
         onScrub={setScrubSpot}
         stopSpot={shortLeg ? stopSpot : null}
-        stopMultiplierLabel={`${stopMultiplier.toFixed(stopMultiplier % 1 === 0 ? 1 : 2)}x`}
         stopLoss={shortLeg ? stopLoss : null}
       />
       {data.kpis.length > 0 && (

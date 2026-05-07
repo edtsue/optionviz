@@ -25,8 +25,6 @@ interface Props {
   onScrub?: (spot: number | null) => void;
   /** BTC stop trigger spot — drawn as a labeled red ReferenceLine */
   stopSpot?: number | null;
-  /** Multiplier label suffix (e.g., "2.0x"). */
-  stopMultiplierLabel?: string;
   /** Dollar P/L if the BTC stop is hit at stopSpot (typically negative). */
   stopLoss?: number | null;
 }
@@ -40,7 +38,6 @@ export function PayoffChart({
   scrubSpot,
   onScrub,
   stopSpot,
-  stopMultiplierLabel,
   stopLoss,
 }: Props) {
   // Build positive/negative envelopes from the expiry curve so we can shade
@@ -61,12 +58,11 @@ export function PayoffChart({
     stopLoss != null
       ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
       : null;
+  // Compact stop label: drop the multiplier (it lives on the slider) and lead
+  // with the dollar threshold + loss so the chart label stays short and reads
+  // as a self-contained "if this fires, you lose this much" callout.
   const stopHeadline =
-    stopSpot != null
-      ? stopMultiplierLabel
-        ? `▼ Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
-        : `▼ Stop $${stopSpot.toFixed(2)}`
-      : "";
+    stopSpot != null ? `▼ Stop $${stopSpot.toFixed(2)}` : "";
   const stopLabelValue = stopLossText ? `${stopHeadline} · ${stopLossText}` : stopHeadline;
 
   return (
@@ -75,7 +71,7 @@ export function PayoffChart({
         <div className="label">Payoff (P/L vs underlying)</div>
         <div className="flex flex-wrap items-center gap-3 text-[11px] muted">
           <Legend dot="#6b7280" label="Today" />
-          <Legend dot="#a78bfa" label={midLabel} />
+          {midLabel !== "Today" && <Legend dot="#a78bfa" label={midLabel} />}
           <Legend dot="#e5e7eb" label="Expiry" />
         </div>
       </div>
@@ -83,7 +79,7 @@ export function PayoffChart({
         <ResponsiveContainer>
           <ComposedChart
             data={shaded}
-            margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+            margin={{ top: 32, right: 16, bottom: 8, left: 0 }}
             onMouseMove={(state: { activeLabel?: number | string }) => {
               if (!onScrub) return;
               const v = state?.activeLabel;
@@ -149,9 +145,10 @@ export function PayoffChart({
                 strokeDasharray="2 4"
                 label={{
                   value: "±1σ at expiry",
-                  position: "insideTop",
+                  position: "insideBottomLeft",
                   fill: "rgb(var(--accent-rgb))",
                   fontSize: 10,
+                  offset: 6,
                 }}
               />
             )}
@@ -178,7 +175,7 @@ export function PayoffChart({
 
             <ReferenceLine y={0} stroke="rgba(255,255,255,0.25)" />
 
-            {/* Spot price line */}
+            {/* Spot price line — label sits in the top margin */}
             <ReferenceLine
               x={underlying}
               stroke="rgb(var(--accent-rgb))"
@@ -188,8 +185,9 @@ export function PayoffChart({
                 value: `Spot $${underlying.toFixed(2)}`,
                 position: "top",
                 fill: "rgb(var(--accent-rgb))",
-                fontSize: 11,
-                fontWeight: 600,
+                fontSize: 12,
+                fontWeight: 700,
+                offset: 8,
               }}
             />
 
@@ -209,10 +207,8 @@ export function PayoffChart({
               />
             )}
 
-            {/* BTC stop trigger — vertical red dashed line with ▼ arrow glyph,
-                multiplier, spot, and dollar loss inline. Structured exactly
-                like the scrub-line above so recharts' child introspection
-                picks it up the same way. */}
+            {/* BTC stop trigger — placed at the bottom of its line so the label
+                doesn't pile up with Spot/BE labels at the top of the chart. */}
             {stopSpot != null && (
               <ReferenceLine
                 x={stopSpot}
@@ -222,15 +218,17 @@ export function PayoffChart({
                 ifOverflow="extendDomain"
                 label={{
                   value: stopLabelValue,
-                  position: "insideTopLeft",
+                  position: "insideBottom",
                   fill: "#f43f5e",
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 700,
+                  offset: 10,
                 }}
               />
             )}
 
-            {/* Breakeven lines, always labeled */}
+            {/* Breakeven lines — anchored top-right of the line so they sit
+                opposite the stop label without overlapping. */}
             {breakevens.map((b, i) => (
               <ReferenceLine
                 key={`be-${i}`}
@@ -240,10 +238,11 @@ export function PayoffChart({
                 strokeWidth={1.25}
                 label={{
                   value: `BE $${b.toFixed(2)}`,
-                  position: i % 2 === 0 ? "insideTopRight" : "insideBottomRight",
+                  position: "insideTopRight",
                   fill: "#f59e0b",
                   fontSize: 11,
                   fontWeight: 600,
+                  offset: 6 + i * 16,
                 }}
               />
             ))}
