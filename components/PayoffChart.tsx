@@ -107,8 +107,11 @@ export function PayoffChart({
             <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
             <XAxis
               dataKey="spot"
+              type="number"
+              domain={["dataMin", "dataMax"]}
+              allowDecimals
               tick={{ fontSize: 11, fill: "#9ca3af" }}
-              tickFormatter={(v: number) => `$${v}`}
+              tickFormatter={(v: number) => `$${v.toFixed(0)}`}
             />
             <YAxis
               tick={{ fontSize: 11, fill: "#9ca3af" }}
