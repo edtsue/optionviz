@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import {
@@ -18,11 +18,19 @@ import { Inspector } from "@/components/Inspector";
 import { StressTest } from "@/components/StressTest";
 import { ResizableSplit } from "@/components/ResizableSplit";
 import { TradeChat } from "@/components/TradeChat";
+import { TradeChecklist } from "@/components/TradeChecklist";
+import { computeStopSpot, findShortLeg } from "@/lib/stop-spot";
+
+type Strategy = "covered_call" | "cash_secured_put";
+type MarketView = "bull" | "neutral" | "bear";
 
 export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
   const [dayProgress, setDayProgress] = useState(0);
   const [scrubSpot, setScrubSpot] = useState<number | null>(null);
   const [showStress, setShowStress] = useState(false);
+  const [stopMultiplier, setStopMultiplier] = useState(2.0);
+  const [marketView, setMarketView] = useState<MarketView>("neutral");
+  const [strategy, setStrategy] = useState<Strategy>("covered_call");
 
   const ready = useMemo(() => {
     if (!trade.legs.length) return false;
@@ -31,6 +39,32 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
       (l) => l.strike > 0 && l.expiration && !Number.isNaN(new Date(l.expiration).getTime()),
     );
   }, [trade]);
+
+  // Detect strategy + identify the short leg the checklist anchors to.
+  const detected = useMemo(() => {
+    const d = detectStrategy(trade);
+    if (d.name === "covered_call") return "covered_call" as const;
+    if (d.name === "cash_secured_put") return "cash_secured_put" as const;
+    return "other" as const;
+  }, [trade]);
+  const shortLeg = useMemo(() => findShortLeg(trade), [trade]);
+
+  // Initialize the strategy override from the detected strategy on first
+  // render of a given trade (the checklist API GET will overwrite if the
+  // user previously stored a different choice).
+  const initStrategyRef = useRef<string | null>(null);
+  if (trade.id && initStrategyRef.current !== trade.id) {
+    initStrategyRef.current = trade.id;
+    if (detected === "covered_call" || detected === "cash_secured_put") {
+      // Defer the setState to the next tick so we don't update during render.
+      Promise.resolve().then(() => setStrategy(detected));
+    }
+  }
+
+  const stopSpot = useMemo(() => {
+    if (!shortLeg) return null;
+    return computeStopSpot({ trade, shortLeg, multiplier: stopMultiplier });
+  }, [trade, shortLeg, stopMultiplier]);
 
   // Trade-only computations: IV fill, stats, KPIs, base payoff, σ-band — these
   // don't depend on the time slider and shouldn't recompute on each scrub.
@@ -108,6 +142,8 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         oneSigmaBand={data.oneSigmaBand}
         scrubSpot={scrubSpot}
         onScrub={setScrubSpot}
+        stopSpot={shortLeg ? stopSpot : null}
+        stopMultiplierLabel={`${stopMultiplier.toFixed(1)}x`}
       />
       {data.kpis.length > 0 && (
         <div className="card card-tight">
@@ -160,16 +196,33 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
     />
   );
 
+  const checklist = (
+    <TradeChecklist
+      trade={data.filled}
+      detectedStrategy={detected}
+      stopMultiplier={stopMultiplier}
+      onStopMultiplierChange={setStopMultiplier}
+      marketView={marketView}
+      onMarketViewChange={setMarketView}
+      strategy={strategy}
+      onStrategyChange={setStrategy}
+      stopSpot={stopSpot}
+    />
+  );
+
   if (!sideBySide) {
     return (
       <div className="space-y-3">
         {main}
         {right}
+        {checklist}
       </div>
     );
   }
 
-  return (
+  // Three-pane layout: outer split keeps the checklist as a fixed-px column on
+  // the far right; inner split keeps the chart-area | inspector arrangement.
+  const inner = (
     <ResizableSplit
       id="trade-chart-inspector"
       fixedSide="end"
@@ -180,6 +233,20 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
     >
       {main}
       {right}
+    </ResizableSplit>
+  );
+
+  return (
+    <ResizableSplit
+      id="trade-checklist"
+      fixedSide="end"
+      defaultPx={320}
+      minPx={260}
+      maxPx={460}
+      breakpoint="xl"
+    >
+      {inner}
+      {checklist}
     </ResizableSplit>
   );
 }

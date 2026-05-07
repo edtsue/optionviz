@@ -23,6 +23,10 @@ interface Props {
   /** Locked scrub spot (vertical line + readout); null = follow cursor only */
   scrubSpot?: number | null;
   onScrub?: (spot: number | null) => void;
+  /** BTC stop trigger spot — drawn as a labeled red ReferenceLine */
+  stopSpot?: number | null;
+  /** Multiplier label suffix (e.g., "2.0x"). */
+  stopMultiplierLabel?: string;
 }
 
 export function PayoffChart({
@@ -33,6 +37,8 @@ export function PayoffChart({
   oneSigmaBand,
   scrubSpot,
   onScrub,
+  stopSpot,
+  stopMultiplierLabel,
 }: Props) {
   // Build positive/negative envelopes from the expiry curve so we can shade
   // the gain and loss zones behind the lines.
@@ -177,6 +183,25 @@ export function PayoffChart({
                   fill: "#fbbf24",
                   fontSize: 11,
                   fontWeight: 600,
+                }}
+              />
+            )}
+
+            {/* BTC stop trigger — vertical red line where option = N× premium */}
+            {stopSpot != null && (
+              <ReferenceLine
+                x={stopSpot}
+                stroke="#f43f5e"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+                label={{
+                  value: stopMultiplierLabel
+                    ? `▼ Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
+                    : `▼ Stop $${stopSpot.toFixed(2)}`,
+                  position: "insideTopLeft",
+                  fill: "#f43f5e",
+                  fontSize: 11,
+                  fontWeight: 700,
                 }}
               />
             )}
