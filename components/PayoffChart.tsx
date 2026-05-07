@@ -145,7 +145,7 @@ export function PayoffChart({
                 strokeDasharray="2 4"
                 label={{
                   value: "±1σ at expiry",
-                  position: "insideBottomLeft",
+                  position: "insideTop",
                   fill: "rgb(var(--accent-rgb))",
                   fontSize: 10,
                   offset: 6,
@@ -191,7 +191,8 @@ export function PayoffChart({
               }}
             />
 
-            {/* Scrub line — user-driven what-if */}
+            {/* Scrub line — user-driven what-if. Anchored bottom-LEFT of the
+                line so it sits opposite the stop label (bottom-right). */}
             {scrubSpot != null && (
               <ReferenceLine
                 x={scrubSpot}
@@ -203,12 +204,14 @@ export function PayoffChart({
                   fill: "#fbbf24",
                   fontSize: 11,
                   fontWeight: 600,
+                  offset: 6,
                 }}
               />
             )}
 
-            {/* BTC stop trigger — placed at the bottom of its line so the label
-                doesn't pile up with Spot/BE labels at the top of the chart. */}
+            {/* BTC stop trigger — anchored bottom-RIGHT of its line so the
+                label sits opposite the scrub label (bottom-left) and below
+                the BE label (insideTopRight). Distinct corner = no overlap. */}
             {stopSpot != null && (
               <ReferenceLine
                 x={stopSpot}
@@ -218,11 +221,11 @@ export function PayoffChart({
                 ifOverflow="extendDomain"
                 label={{
                   value: stopLabelValue,
-                  position: "insideBottom",
+                  position: "insideBottomRight",
                   fill: "#f43f5e",
                   fontSize: 12,
                   fontWeight: 700,
-                  offset: 10,
+                  offset: 6,
                 }}
               />
             )}
