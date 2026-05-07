@@ -62,7 +62,11 @@ function LoginInner() {
           className="w-full rounded-lg border border-border bg-white/[0.04] px-3 py-2.5 text-base text-center"
         />
 
-        {error && <div className="text-sm loss">{error}</div>}
+        {error && (
+          <div className="rounded-lg border border-loss/40 bg-loss/10 p-2 text-sm loss">
+            {error}
+          </div>
+        )}
 
         <button
           type="submit"

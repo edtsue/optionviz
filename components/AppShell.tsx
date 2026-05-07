@@ -54,6 +54,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const dragRef = useRef<{ x: number; w: number } | null>(null);
   const pathname = usePathname();
   const theme = themeFor(pathname);
+  // /login renders standalone — no sidebar, no mobile header, no chat. Keeping
+  // the sidebar visible there sent users in an auth redirect loop because
+  // every link bounced through middleware back to /login.
+  const isLogin = pathname?.startsWith("/login") ?? false;
 
   // Load persisted width
   useEffect(() => {
@@ -105,6 +109,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     "--accent-dim": theme.accentDim,
     "--accent-dim-rgb": theme.accentDimRgb,
   } as React.CSSProperties;
+
+  if (isLogin) {
+    return (
+      <div className="min-h-screen" style={themeStyle}>
+        <main className="min-h-screen">{children}</main>
+      </div>
+    );
+  }
 
   return (
     <ChatContextProvider>
