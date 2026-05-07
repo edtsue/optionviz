@@ -151,6 +151,8 @@ interface Props {
   onStrategyChange: (v: Strategy) => void;
   /** Computed stop spot for the headline chip (display-only). */
   stopSpot: number | null;
+  /** Computed dollar P/L at stop trigger (display-only, usually negative). */
+  stopLoss?: number | null;
 }
 
 export function TradeChecklist(props: Props) {
@@ -164,6 +166,7 @@ export function TradeChecklist(props: Props) {
     strategy,
     onStrategyChange,
     stopSpot,
+    stopLoss,
   } = props;
 
   const [checked, setChecked] = useState<Record<string, boolean>>({});
@@ -303,8 +306,8 @@ export function TradeChecklist(props: Props) {
         </div>
       )}
 
-      {/* Strategy + market view row */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Strategy + market view — stacked so neither label/control is squished */}
+      <div className="space-y-2">
         <label className="block">
           <span className="text-[10px] muted uppercase tracking-wider">Strategy</span>
           <select
@@ -348,29 +351,46 @@ export function TradeChecklist(props: Props) {
       <div className="rounded-md border border-border bg-white/[0.02] p-2.5">
         <div className="flex items-baseline justify-between text-[11px]">
           <span className="muted uppercase tracking-wider">Stop multiplier</span>
-          <span className="font-semibold">{stopMultiplier.toFixed(1)}x</span>
+          <span className="font-semibold">
+            {stopMultiplier.toFixed(stopMultiplier % 1 === 0 ? 1 : 2)}x
+          </span>
         </div>
         <input
           type="range"
-          min={1.5}
-          max={3.5}
-          step={0.5}
+          min={1.0}
+          max={3.0}
+          step={0.25}
           value={stopMultiplier}
           onChange={(e) => setMultiplier(parseFloat(e.target.value))}
           className="mt-2 w-full accent-current"
         />
         <div className="mt-1 flex justify-between text-[10px] muted">
+          <span>1.0x</span>
           <span>1.5x</span>
           <span>2.0x</span>
           <span>2.5x</span>
           <span>3.0x</span>
-          <span>3.5x</span>
         </div>
-        <div className="mt-2 text-[11px]">
-          Stop trigger:{" "}
-          <span className="font-semibold">
-            {stopSpot != null ? `spot $${stopSpot.toFixed(2)}` : "—"}
-          </span>
+        <div className="mt-2 space-y-0.5 text-[11px]">
+          <div>
+            Stop trigger:{" "}
+            <span className="font-semibold">
+              {stopSpot != null ? `spot $${stopSpot.toFixed(2)}` : "—"}
+            </span>
+          </div>
+          <div>
+            Loss at stop:{" "}
+            <span
+              className={
+                "font-semibold " +
+                (stopLoss != null && stopLoss < 0 ? "text-rose-400" : "")
+              }
+            >
+              {stopLoss != null
+                ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                : "—"}
+            </span>
+          </div>
         </div>
       </div>
 

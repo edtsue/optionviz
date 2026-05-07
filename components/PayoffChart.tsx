@@ -27,6 +27,8 @@ interface Props {
   stopSpot?: number | null;
   /** Multiplier label suffix (e.g., "2.0x"). */
   stopMultiplierLabel?: string;
+  /** Dollar P/L if the BTC stop is hit at stopSpot (typically negative). */
+  stopLoss?: number | null;
 }
 
 export function PayoffChart({
@@ -39,6 +41,7 @@ export function PayoffChart({
   onScrub,
   stopSpot,
   stopMultiplierLabel,
+  stopLoss,
 }: Props) {
   // Build positive/negative envelopes from the expiry curve so we can shade
   // the gain and loss zones behind the lines.
@@ -187,21 +190,54 @@ export function PayoffChart({
               />
             )}
 
-            {/* BTC stop trigger — vertical red line where option = N× premium */}
+            {/* BTC stop trigger — vertical red line w/ arrowhead + loss readout */}
             {stopSpot != null && (
               <ReferenceLine
                 x={stopSpot}
                 stroke="#f43f5e"
                 strokeWidth={2}
                 strokeDasharray="6 3"
-                label={{
-                  value: stopMultiplierLabel
-                    ? `▼ Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
-                    : `▼ Stop $${stopSpot.toFixed(2)}`,
-                  position: "insideTopLeft",
-                  fill: "#f43f5e",
-                  fontSize: 11,
-                  fontWeight: 700,
+                label={(labelProps: {
+                  viewBox?: { x?: number; y?: number; width?: number; height?: number };
+                }) => {
+                  const vb = labelProps?.viewBox ?? {};
+                  const cx = typeof vb.x === "number" ? vb.x : 0;
+                  const top = (typeof vb.y === "number" ? vb.y : 0) + 4;
+                  const lossText =
+                    stopLoss != null
+                      ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                      : null;
+                  const headline = stopMultiplierLabel
+                    ? `Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
+                    : `Stop $${stopSpot.toFixed(2)}`;
+                  return (
+                    <g pointerEvents="none">
+                      <polygon
+                        points={`${cx - 6},${top} ${cx + 6},${top} ${cx},${top + 10}`}
+                        fill="#f43f5e"
+                      />
+                      <text
+                        x={cx + 10}
+                        y={top + 9}
+                        fill="#f43f5e"
+                        fontSize={11}
+                        fontWeight={700}
+                      >
+                        {headline}
+                      </text>
+                      {lossText && (
+                        <text
+                          x={cx + 10}
+                          y={top + 22}
+                          fill="#f43f5e"
+                          fontSize={11}
+                          fontWeight={600}
+                        >
+                          {lossText}
+                        </text>
+                      )}
+                    </g>
+                  );
                 }}
               />
             )}

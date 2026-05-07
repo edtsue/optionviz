@@ -66,6 +66,14 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
     return computeStopSpot({ trade, shortLeg, multiplier: stopMultiplier });
   }, [trade, shortLeg, stopMultiplier]);
 
+  // Total dollar P/L if the BTC stop fires at stopSpot today (option leg(s)
+  // re-priced via Black-Scholes + any underlying mark-to-market).
+  const stopLoss = useMemo(() => {
+    if (stopSpot == null) return null;
+    const filled = fillImpliedVolsForTrade(trade);
+    return totalPnL(filled, stopSpot, new Date());
+  }, [trade, stopSpot]);
+
   // Trade-only computations: IV fill, stats, KPIs, base payoff, σ-band — these
   // don't depend on the time slider and shouldn't recompute on each scrub.
   const base = useMemo(() => {
@@ -143,7 +151,8 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
         scrubSpot={scrubSpot}
         onScrub={setScrubSpot}
         stopSpot={shortLeg ? stopSpot : null}
-        stopMultiplierLabel={`${stopMultiplier.toFixed(1)}x`}
+        stopMultiplierLabel={`${stopMultiplier.toFixed(stopMultiplier % 1 === 0 ? 1 : 2)}x`}
+        stopLoss={shortLeg ? stopLoss : null}
       />
       {data.kpis.length > 0 && (
         <div className="card card-tight">
@@ -207,6 +216,7 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
       strategy={strategy}
       onStrategyChange={setStrategy}
       stopSpot={stopSpot}
+      stopLoss={stopLoss}
     />
   );
 
