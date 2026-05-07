@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
@@ -193,43 +193,11 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     }
   }, [trade.symbol, trade.updatedAt, tradeId]);
 
-  // Auto-refresh spot on first mount if the stored row hasn't been touched in
-  // the last 5 minutes. Throttled per-mount via autoSpotFiredRef so toggling
-  // the filter or losing focus doesn't re-fire.
-  const autoSpotFiredRef = useRef(false);
-  useEffect(() => {
-    if (autoSpotFiredRef.current) return;
-    autoSpotFiredRef.current = true;
-    if (!trade.symbol) return;
-    const lastTouched = trade.updatedAt ? new Date(trade.updatedAt).getTime() : 0;
-    if (Date.now() - lastTouched < 5 * 60 * 1000) return;
-    onUpdateSpot();
-  }, [trade.symbol, trade.updatedAt, onUpdateSpot]);
-
-  // Seed marketView from the persisted checklist so the bias caption shows
-  // the user's saved view immediately on load instead of flickering "neutral"
-  // until the checklist component finishes its own fetch.
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/trades/${tradeId}/checklist`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled) return;
-        const v = data?.checklist?.market_view;
-        if (v === "bull" || v === "neutral" || v === "bear") setMarketView(v);
-      })
-      .catch(() => {
-        /* non-fatal — TradeChecklist also fetches */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tradeId]);
-
-  // (Keyboard shortcuts were removed — they were the suspect for sidebar
-  // navigation breaking. If we re-add later, scope the listener to a ref
-  // on the trade-detail container instead of window so it can never see
-  // keystrokes intended for the sidebar / global nav.)
+  // (Auto-spot + marketView-seed effects, plus the keyboard shortcut handler,
+  // were removed while diagnosing a sidebar-navigation regression. The
+  // checklist component still seeds marketView via its own callback, so the
+  // bias caption catches up after a short delay; spot can be refreshed
+  // manually via the Update spot button.)
 
   return (
     <div className="space-y-4 pl-3 pr-4 py-4">
