@@ -190,57 +190,35 @@ export function PayoffChart({
               />
             )}
 
-            {/* BTC stop trigger — vertical red line w/ arrowhead + loss readout */}
-            {stopSpot != null && (
-              <ReferenceLine
-                x={stopSpot}
-                stroke="#f43f5e"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                label={(labelProps: {
-                  viewBox?: { x?: number; y?: number; width?: number; height?: number };
-                }) => {
-                  const vb = labelProps?.viewBox ?? {};
-                  const cx = typeof vb.x === "number" ? vb.x : 0;
-                  const top = (typeof vb.y === "number" ? vb.y : 0) + 4;
-                  const lossText =
-                    stopLoss != null
-                      ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                      : null;
-                  const headline = stopMultiplierLabel
-                    ? `Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
-                    : `Stop $${stopSpot.toFixed(2)}`;
-                  return (
-                    <g pointerEvents="none">
-                      <polygon
-                        points={`${cx - 6},${top} ${cx + 6},${top} ${cx},${top + 10}`}
-                        fill="#f43f5e"
-                      />
-                      <text
-                        x={cx + 10}
-                        y={top + 9}
-                        fill="#f43f5e"
-                        fontSize={11}
-                        fontWeight={700}
-                      >
-                        {headline}
-                      </text>
-                      {lossText && (
-                        <text
-                          x={cx + 10}
-                          y={top + 22}
-                          fill="#f43f5e"
-                          fontSize={11}
-                          fontWeight={600}
-                        >
-                          {lossText}
-                        </text>
-                      )}
-                    </g>
-                  );
-                }}
-              />
-            )}
+            {/* BTC stop trigger — vertical red dashed line, ▼ arrow glyph at top
+                with multiplier, spot, and dollar loss inline. We use the
+                object-form label here because recharts 2.13's <ReferenceLine>
+                silently drops function/element labels (they coerce to text). */}
+            {stopSpot != null &&
+              (() => {
+                const lossText =
+                  stopLoss != null
+                    ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                    : null;
+                const headline = stopMultiplierLabel
+                  ? `▼ Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
+                  : `▼ Stop $${stopSpot.toFixed(2)}`;
+                return (
+                  <ReferenceLine
+                    x={stopSpot}
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    label={{
+                      value: lossText ? `${headline} · ${lossText}` : headline,
+                      position: "insideTopLeft",
+                      fill: "#f43f5e",
+                      fontSize: 11,
+                      fontWeight: 700,
+                    }}
+                  />
+                );
+              })()}
 
             {/* Breakeven lines, always labeled */}
             {breakevens.map((b, i) => (
