@@ -226,34 +226,10 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     };
   }, [tradeId]);
 
-  // Keyboard shortcuts: ⌘/Ctrl+S=Save, ⌘/Ctrl+Shift+R=Refresh spot,
-  // ⌘/Ctrl+Backspace=Delete. Modifier-required so plain letter keystrokes
-  // (e.g. someone tabbing through the sidebar links and typing) don't
-  // accidentally fire Save / open the Delete dialog and block navigation.
-  useEffect(() => {
-    function handler(e: KeyboardEvent) {
-      const tgt = e.target as HTMLElement | null;
-      const tag = tgt?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (tgt?.isContentEditable) return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      const key = e.key.toLowerCase();
-      if (key === "s" && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        onSave();
-      } else if (key === "r" && e.shiftKey) {
-        e.preventDefault();
-        onUpdateSpot();
-      } else if (e.key === "Backspace") {
-        e.preventDefault();
-        setConfirmDelete(true);
-      }
-    }
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trade, onUpdateSpot]);
+  // (Keyboard shortcuts were removed — they were the suspect for sidebar
+  // navigation breaking. If we re-add later, scope the listener to a ref
+  // on the trade-detail container instead of window so it can never see
+  // keystrokes intended for the sidebar / global nav.)
 
   return (
     <div className="space-y-4 pl-3 pr-4 py-4">
@@ -296,7 +272,6 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           <button
             onClick={onUpdateSpot}
             disabled={spotStatus.updating}
-            title="Refresh spot price (⌘⇧R)"
             className="btn-ghost rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
           >
             {spotStatus.updating ? "Updating…" : "Update spot"}
@@ -304,14 +279,12 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           <button
             onClick={onSave}
             disabled={saveStatus.saving}
-            title="Save (⌘S)"
             className="btn-primary rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
           >
             {saveStatus.saving ? "Saving…" : saveStatus.saved ? "Saved ✓" : "Save"}
           </button>
           <button
             onClick={() => setConfirmDelete(true)}
-            title="Delete (⌘⌫)"
             className="btn-danger rounded-lg px-3 py-1.5 text-sm"
           >
             Delete
