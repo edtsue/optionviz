@@ -78,6 +78,20 @@ export const tradesClient = {
     return res.json();
   },
 
+  async update(id: string, trade: Trade): Promise<Trade> {
+    const res = await fetch(`/api/trades/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(trade),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error ?? `Save failed (HTTP ${res.status})`);
+    }
+    const data = await res.json();
+    return data.trade as Trade;
+  },
+
   async remove(id: string): Promise<void> {
     const res = await fetch(`/api/trades/${id}`, { method: "DELETE" });
     if (!res.ok) {

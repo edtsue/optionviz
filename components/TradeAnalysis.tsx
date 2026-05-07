@@ -25,12 +25,30 @@ import { computeStopSpot, findShortLeg } from "@/lib/stop-spot";
 type Strategy = "covered_call" | "cash_secured_put";
 type MarketView = "bull" | "neutral" | "bear";
 
-export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; sideBySide?: boolean }) {
+export function TradeAnalysis({
+  trade,
+  sideBySide = true,
+  marketView: marketViewProp,
+  onMarketViewChange,
+}: {
+  trade: Trade;
+  sideBySide?: boolean;
+  /** Optional controlled market view — when supplied, lifted into the parent
+      so the page header can read it (e.g., to show "bullish bias" matching
+      the user's manual selection instead of the auto-detected strategy bias). */
+  marketView?: MarketView;
+  onMarketViewChange?: (v: MarketView) => void;
+}) {
   const [dayProgress, setDayProgress] = useState(0);
   const [scrubSpot, setScrubSpot] = useState<number | null>(null);
   const [showStress, setShowStress] = useState(false);
   const [stopMultiplier, setStopMultiplier] = useState(2.0);
-  const [marketView, setMarketView] = useState<MarketView>("neutral");
+  const [marketViewLocal, setMarketViewLocal] = useState<MarketView>("neutral");
+  const marketView = marketViewProp ?? marketViewLocal;
+  const setMarketView = (v: MarketView) => {
+    setMarketViewLocal(v);
+    onMarketViewChange?.(v);
+  };
   const [strategy, setStrategy] = useState<Strategy>("covered_call");
 
   const ready = useMemo(() => {

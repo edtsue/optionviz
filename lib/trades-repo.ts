@@ -155,6 +155,58 @@ export async function updateUnderlyingPrice(
   return { trade: await getTrade(id) };
 }
 
+/**
+ * Replace a trade's mutable fields and rewrite its legs. Used by the manual
+ * Save button on the trade detail page so the user can edit a parsed ticket
+ * (e.g. correct an expiration the vision parser misread) and persist it.
+ */
+export async function updateTrade(id: string, trade: Trade): Promise<Trade | null> {
+  const sb = supabaseAdmin();
+  const { error: e1 } = await sb
+    .from("trades")
+    .update({
+      symbol: trade.symbol,
+      underlying_price: trade.underlyingPrice,
+      risk_free_rate: trade.riskFreeRate,
+      underlying_shares: trade.underlying?.shares ?? null,
+      underlying_cost_basis: trade.underlying?.costBasis ?? null,
+      notes: trade.notes ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (e1) {
+    console.error("trades.update failed:", e1);
+    throw pgErr(e1, "Update trade failed");
+  }
+  // Replace legs wholesale — simpler than diff-and-patch for a tiny per-trade
+  // leg count, and matches what the user expects from a "Save" button.
+  const { error: e2 } = await sb.from("legs").delete().eq("trade_id", id);
+  if (e2) {
+    console.error("legs.delete failed:", e2);
+    throw pgErr(e2, "Replace legs failed");
+  }
+  if (trade.legs.length) {
+    const { error: e3 } = await sb.from("legs").insert(
+      trade.legs.map((l, i) => ({
+        trade_id: id,
+        type: l.type,
+        side: l.side,
+        strike: l.strike,
+        expiration: l.expiration,
+        quantity: l.quantity,
+        premium: l.premium,
+        iv: l.iv ?? null,
+        position: i,
+      })),
+    );
+    if (e3) {
+      console.error("legs.insert failed:", e3);
+      throw pgErr(e3, "Replace legs insert failed");
+    }
+  }
+  return getTrade(id);
+}
+
 export async function deleteTrade(id: string): Promise<void> {
   const sb = supabaseAdmin();
   const { error } = await sb.from("trades").delete().eq("id", id);

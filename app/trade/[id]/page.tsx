@@ -82,13 +82,25 @@ export default function TradePage() {
   return <TradeView trade={trade} tradeId={params.id} />;
 }
 
+type MarketView = "bull" | "neutral" | "bear";
+
+const VIEW_BIAS: Record<MarketView, string> = {
+  bull: "bullish",
+  neutral: "neutral",
+  bear: "bearish",
+};
+
 function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: string }) {
   const router = useRouter();
   const [trade, setTrade] = useState<Trade>(initialTrade);
   const [spotStatus, setSpotStatus] = useState<{ updating: boolean; asOf?: string; error?: string }>({
     updating: false,
   });
+  const [saveStatus, setSaveStatus] = useState<{ saving: boolean; saved?: boolean; error?: string }>({
+    saving: false,
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [marketView, setMarketView] = useState<MarketView>("neutral");
   const strategy = useMemo(() => detectStrategy(trade), [trade]);
   const greeks = useMemo(() => netGreeks(trade), [trade]);
   const stats = useMemo(() => tradeStats(trade), [trade]);
@@ -99,7 +111,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
       symbol: trade.symbol,
       underlyingPrice: trade.underlyingPrice,
       strategy: strategy.label,
-      bias: strategy.bias,
+      bias: VIEW_BIAS[marketView],
       legs: trade.legs.map((l) => ({
         side: l.side,
         type: l.type,
@@ -124,7 +136,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         pop: stats.pop,
       },
     }),
-    [trade, strategy, greeks, stats],
+    [trade, strategy, marketView, greeks, stats],
   );
   useRegisterChatContext(chatLabel, chatData);
 
@@ -132,6 +144,21 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     await tradesClient.remove(tradeId);
     notifyTradesChanged();
     router.push("/");
+  }
+
+  async function onSave() {
+    setSaveStatus({ saving: true });
+    try {
+      const updated = await tradesClient.update(tradeId, trade);
+      setTrade(fillImpliedVolsForTrade(updated));
+      notifyTradesChanged();
+      setSaveStatus({ saving: false, saved: true });
+      // Clear the "Saved ✓" pip after a couple seconds so the button returns
+      // to its idle label.
+      setTimeout(() => setSaveStatus((s) => (s.saved ? { saving: false } : s)), 2000);
+    } catch (e) {
+      setSaveStatus({ saving: false, error: e instanceof Error ? e.message : "Save failed" });
+    }
   }
 
   async function onUpdateSpot() {
@@ -167,7 +194,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
             <span className="text-3xl font-bold leading-none text-orange-400">
               ${trade.underlyingPrice.toFixed(2)}
             </span>
-            <span className="text-xs muted">· {strategy.bias} bias</span>
+            <span className="text-xs muted">· {VIEW_BIAS[marketView]} bias</span>
             {spotStatus.asOf && !spotStatus.error && (
               <span className="text-[10px] muted">updated {spotStatus.asOf}</span>
             )}
@@ -185,11 +212,23 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
             {spotStatus.updating ? "Updating…" : "Update spot"}
           </button>
           <button
+            onClick={onSave}
+            disabled={saveStatus.saving}
+            className="btn-primary rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
+          >
+            {saveStatus.saving ? "Saving…" : saveStatus.saved ? "Saved ✓" : "Save"}
+          </button>
+          <button
             onClick={() => setConfirmDelete(true)}
             className="btn-danger rounded-lg px-3 py-1.5 text-sm"
           >
             Delete
           </button>
+          {saveStatus.error && (
+            <span className="text-[11px] loss" title={saveStatus.error}>
+              save failed
+            </span>
+          )}
           <ConfirmDialog
             open={confirmDelete}
             title="Delete this trade?"
@@ -205,7 +244,11 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         </div>
       </header>
 
-      <TradeAnalysis trade={trade} />
+      <TradeAnalysis
+        trade={trade}
+        marketView={marketView}
+        onMarketViewChange={setMarketView}
+      />
 
       <div className="card card-tight">
         <div className="label mb-2">Legs</div>
