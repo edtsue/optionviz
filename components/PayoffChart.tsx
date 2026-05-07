@@ -53,6 +53,22 @@ export function PayoffChart({
 
   const pctFromSpot = (v: number) => ((v - underlying) / underlying) * 100;
 
+  // Precompute the stop-trigger label so the JSX below can stay in the same
+  // shape as the other ReferenceLines (recharts inspects direct children to
+  // discover ReferenceLine elements; matching the scrub-line pattern is the
+  // safest way to guarantee it gets picked up).
+  const stopLossText =
+    stopLoss != null
+      ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : null;
+  const stopHeadline =
+    stopSpot != null
+      ? stopMultiplierLabel
+        ? `▼ Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
+        : `▼ Stop $${stopSpot.toFixed(2)}`
+      : "";
+  const stopLabelValue = stopLossText ? `${stopHeadline} · ${stopLossText}` : stopHeadline;
+
   return (
     <div className="card">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
@@ -190,35 +206,26 @@ export function PayoffChart({
               />
             )}
 
-            {/* BTC stop trigger — vertical red dashed line, ▼ arrow glyph at top
-                with multiplier, spot, and dollar loss inline. We use the
-                object-form label here because recharts 2.13's <ReferenceLine>
-                silently drops function/element labels (they coerce to text). */}
-            {stopSpot != null &&
-              (() => {
-                const lossText =
-                  stopLoss != null
-                    ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                    : null;
-                const headline = stopMultiplierLabel
-                  ? `▼ Stop ${stopMultiplierLabel} · $${stopSpot.toFixed(2)}`
-                  : `▼ Stop $${stopSpot.toFixed(2)}`;
-                return (
-                  <ReferenceLine
-                    x={stopSpot}
-                    stroke="#f43f5e"
-                    strokeWidth={2}
-                    strokeDasharray="6 3"
-                    label={{
-                      value: lossText ? `${headline} · ${lossText}` : headline,
-                      position: "insideTopLeft",
-                      fill: "#f43f5e",
-                      fontSize: 11,
-                      fontWeight: 700,
-                    }}
-                  />
-                );
-              })()}
+            {/* BTC stop trigger — vertical red dashed line with ▼ arrow glyph,
+                multiplier, spot, and dollar loss inline. Structured exactly
+                like the scrub-line above so recharts' child introspection
+                picks it up the same way. */}
+            {stopSpot != null && (
+              <ReferenceLine
+                x={stopSpot}
+                stroke="#f43f5e"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+                ifOverflow="extendDomain"
+                label={{
+                  value: stopLabelValue,
+                  position: "insideTopLeft",
+                  fill: "#f43f5e",
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}
+              />
+            )}
 
             {/* Breakeven lines, always labeled */}
             {breakevens.map((b, i) => (

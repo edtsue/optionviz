@@ -162,13 +162,17 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           <h1 className="text-2xl font-semibold tracking-tight">
             {trade.symbol} <span className="muted">· {strategy.label}</span>
           </h1>
-          <div className="text-xs muted data-grid">
-            Underlying <span className="kpi-xs">${trade.underlyingPrice.toFixed(2)}</span> · {strategy.bias} bias
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-[11px] muted uppercase tracking-wider">Underlying</span>
+            <span className="text-3xl font-bold leading-none text-orange-400">
+              ${trade.underlyingPrice.toFixed(2)}
+            </span>
+            <span className="text-xs muted">· {strategy.bias} bias</span>
             {spotStatus.asOf && !spotStatus.error && (
-              <span className="ml-2 text-[10px] muted">updated {spotStatus.asOf}</span>
+              <span className="text-[10px] muted">updated {spotStatus.asOf}</span>
             )}
             {spotStatus.error && (
-              <span className="ml-2 text-[10px] loss">{spotStatus.error}</span>
+              <span className="text-[10px] loss">{spotStatus.error}</span>
             )}
           </div>
         </div>
