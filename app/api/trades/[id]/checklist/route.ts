@@ -10,7 +10,7 @@ const MarketViewEnum = z.enum(["bull", "neutral", "bear"]);
 const PutSchema = z.object({
   strategy: StrategyEnum.optional(),
   market_view: MarketViewEnum.optional(),
-  stop_multiplier: z.number().min(1.5).max(3.5).optional(),
+  stop_multiplier: z.number().min(1.0).max(3.0).optional(),
   checked_items: z.record(z.string(), z.boolean()).optional(),
 });
 

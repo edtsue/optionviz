@@ -7,7 +7,7 @@ create table if not exists trade_checklists (
   strategy text not null check (strategy in ('covered_call', 'cash_secured_put')),
   market_view text not null check (market_view in ('bull', 'neutral', 'bear')) default 'neutral',
   stop_multiplier numeric not null default 2.0
-    check (stop_multiplier >= 1.5 and stop_multiplier <= 3.5),
+    check (stop_multiplier >= 1.0 and stop_multiplier <= 3.0),
   checked_items jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
