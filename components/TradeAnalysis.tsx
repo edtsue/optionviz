@@ -19,6 +19,7 @@ import { StressTest } from "@/components/StressTest";
 import { ResizableSplit } from "@/components/ResizableSplit";
 import { TradeChat } from "@/components/TradeChat";
 import { TradeChecklist } from "@/components/TradeChecklist";
+import { TradeInputs } from "@/components/TradeInputs";
 import { computeStopSpot, findShortLeg } from "@/lib/stop-spot";
 
 type Strategy = "covered_call" | "cash_secured_put";
@@ -196,12 +197,15 @@ export function TradeAnalysis({ trade, sideBySide = true }: { trade: Trade; side
   );
 
   const right = (
-    <Inspector
-      greeks={data.greeksAtTarget}
-      stats={data.stats}
-      trade={data.filled}
-      asOfLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
-    />
+    <div className="flex flex-col gap-3">
+      <TradeInputs trade={data.filled} strategy={data.strategy} />
+      <Inspector
+        greeks={data.greeksAtTarget}
+        stats={data.stats}
+        trade={data.filled}
+        asOfLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
+      />
+    </div>
   );
 
   const checklist = (

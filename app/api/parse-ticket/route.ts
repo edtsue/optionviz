@@ -39,7 +39,13 @@ Rules:
 - Map "Buy to open" → side:"long". "Sell to open" → side:"short". Closing actions → invert: "Buy to close" → side:"short" being closed (treat as short for visualization purposes only if explicitly closing). Default unclear actions to long.
 - "type" must be "call" or "put".
 - "strike" is the option strike price (number). If not visible, use null.
-- "expiration" must be ISO date YYYY-MM-DD.
+- "expiration" must be ISO date YYYY-MM-DD. Read the EXACT date on the ticket — do not invent or default. Common ticket formats:
+    - "May 29 2026" / "May 29, 2026" → 2026-05-29
+    - "5/29/2026" / "5/29/26" → 2026-05-29
+    - "29-MAY-2026" / "29MAY26" → 2026-05-29
+    - OCC option symbol like "NVDA260529C00250000" → 2026-05-29
+    - Compact ticker like "NVDA May29'26 250C" → 2026-05-29
+  If the year is missing on the ticket, infer the closest upcoming Friday/expiration from the current date provided in the user message (options expirations are in the future, never the past).
 - "quantity" is number of contracts (integer). If not visible, use null — DO NOT default to 1.
 - "premium" is per-share option price (use limit price / mid / displayed price; never the total dollar estimate). If not visible, use null.
 - "underlyingPrice" is the current stock price visible on the ticket.
@@ -88,7 +94,10 @@ export async function POST(req: NextRequest) {
                 data: imageBase64,
               },
             },
-            { type: "text", text: "Parse this ticket. Return JSON only." },
+            {
+              type: "text",
+              text: `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Use this to fill in any missing year on expiration dates — option expirations are always in the future. Parse this ticket. Return JSON only.`,
+            },
           ],
         },
       ],
