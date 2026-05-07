@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
-import { fillImpliedVolsForTrade, netGreeks, tradeStats } from "@/lib/payoff";
+import { fillImpliedVolsForTrade, netGreeks, totalPnL, tradeStats } from "@/lib/payoff";
 import { detectStrategy } from "@/lib/strategies";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
+import { TradeForm } from "@/components/TradeForm";
 import { notifyTradesChanged } from "@/components/Sidebar";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useRegisterChatContext } from "@/lib/chat-context";
@@ -105,6 +106,16 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
   const greeks = useMemo(() => netGreeks(trade), [trade]);
   const stats = useMemo(() => tradeStats(trade), [trade]);
 
+  // Live unrealized P/L: re-price every option leg via Black-Scholes at the
+  // current spot, plus mark-to-market on any underlying shares. Drives the
+  // "Open P/L" caption under the orange spot price.
+  const openPnl = useMemo(() => {
+    const dollars = totalPnL(trade, trade.underlyingPrice, new Date());
+    const cost = Math.abs(stats.cost);
+    const pct = cost > 0 ? (dollars / cost) * 100 : 0;
+    return { dollars, pct };
+  }, [trade, stats.cost]);
+
   const chatLabel = `Trade: ${trade.symbol} ${strategy.label}`;
   const chatData = useMemo(
     () => ({
@@ -161,7 +172,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     }
   }
 
-  async function onUpdateSpot() {
+  const onUpdateSpot = useCallback(async () => {
     setSpotStatus({ updating: true });
     try {
       const { price, asOf } = await tradesClient.fetchSpot(trade.symbol);
@@ -180,7 +191,67 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
       const msg = e instanceof Error ? e.message : "update failed";
       setSpotStatus({ updating: false, error: msg });
     }
-  }
+  }, [trade.symbol, trade.updatedAt, tradeId]);
+
+  // Auto-refresh spot on first mount if the stored row hasn't been touched in
+  // the last 5 minutes. Throttled per-mount via autoSpotFiredRef so toggling
+  // the filter or losing focus doesn't re-fire.
+  const autoSpotFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoSpotFiredRef.current) return;
+    autoSpotFiredRef.current = true;
+    if (!trade.symbol) return;
+    const lastTouched = trade.updatedAt ? new Date(trade.updatedAt).getTime() : 0;
+    if (Date.now() - lastTouched < 5 * 60 * 1000) return;
+    onUpdateSpot();
+  }, [trade.symbol, trade.updatedAt, onUpdateSpot]);
+
+  // Seed marketView from the persisted checklist so the bias caption shows
+  // the user's saved view immediately on load instead of flickering "neutral"
+  // until the checklist component finishes its own fetch.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/trades/${tradeId}/checklist`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const v = data?.checklist?.market_view;
+        if (v === "bull" || v === "neutral" || v === "bear") setMarketView(v);
+      })
+      .catch(() => {
+        /* non-fatal — TradeChecklist also fetches */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId]);
+
+  // Keyboard shortcuts: S=Save, R=Refresh spot, D=Delete (with confirm).
+  // Skip when typing in an input/textarea/select/contentEditable.
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tgt = e.target as HTMLElement | null;
+      const tag = tgt?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (tgt?.isContentEditable) return;
+      const key = e.key.toLowerCase();
+      if (key === "s") {
+        e.preventDefault();
+        onSave();
+      } else if (key === "r") {
+        e.preventDefault();
+        onUpdateSpot();
+      } else if (key === "d") {
+        e.preventDefault();
+        setConfirmDelete(true);
+      }
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // onSave reads `trade` from closure; refresh listener when trade changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trade, onUpdateSpot]);
 
   return (
     <div className="space-y-4 pl-3 pr-4 py-4">
@@ -202,11 +273,28 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
               <span className="text-[10px] loss">{spotStatus.error}</span>
             )}
           </div>
+          <div className="mt-1 text-xs">
+            <span className="text-[10px] muted uppercase tracking-wider">Open P/L</span>{" "}
+            <span
+              className={`font-semibold ${openPnl.dollars > 0 ? "text-emerald-400" : openPnl.dollars < 0 ? "text-rose-400" : "text-textDim"}`}
+            >
+              {openPnl.dollars >= 0 ? "+" : "−"}$
+              {Math.abs(openPnl.dollars).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {Number.isFinite(openPnl.pct) && stats.cost !== 0 && (
+                <>
+                  {" "}
+                  ({openPnl.pct >= 0 ? "+" : "−"}
+                  {Math.abs(openPnl.pct).toFixed(1)}%)
+                </>
+              )}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={onUpdateSpot}
             disabled={spotStatus.updating}
+            title="Refresh spot price (R)"
             className="btn-ghost rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
           >
             {spotStatus.updating ? "Updating…" : "Update spot"}
@@ -214,12 +302,14 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           <button
             onClick={onSave}
             disabled={saveStatus.saving}
+            title="Save (S)"
             className="btn-primary rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
           >
             {saveStatus.saving ? "Saving…" : saveStatus.saved ? "Saved ✓" : "Save"}
           </button>
           <button
             onClick={() => setConfirmDelete(true)}
+            title="Delete (D)"
             className="btn-danger rounded-lg px-3 py-1.5 text-sm"
           >
             Delete
@@ -285,6 +375,23 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           )}
         </div>
       </div>
+
+      <details className="card group">
+        <summary className="cursor-pointer text-sm font-medium hover:text-text">
+          Edit trade ▸
+          <span className="ml-2 text-[11px] muted">
+            fix a misread strike / expiration / premium and Save
+          </span>
+        </summary>
+        <div className="mt-3">
+          <TradeForm
+            trade={trade}
+            onChange={setTrade}
+            onSave={async () => {}}
+            hideSave
+          />
+        </div>
+      </details>
 
       {trade.notes && (
         <div className="card card-tight">

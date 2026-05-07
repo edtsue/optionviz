@@ -17,6 +17,9 @@ interface ParsedTicket {
   ticketImagePath?: string | null;
   /** Names of fields that the parser couldn't read — surfaced to the user. */
   missingFields?: string[];
+  /** Names of fields the parser had to infer (year missing, blurry digit,
+      etc.) — surfaced as a softer warning so the user double-checks. */
+  lowConfidence?: string[];
 }
 
 interface Staged {
@@ -99,10 +102,13 @@ export function TicketUpload({ onParsed }: { onParsed: (t: ParsedTicket) => void
         if (l.strike == null) missing.push(`leg ${i + 1} strike`);
         if (l.premium == null) missing.push(`leg ${i + 1} premium`);
       });
-      onParsed({ ...parsed, ticketImagePath, missingFields: missing });
+      const lowConfidence = Array.isArray(parsed.lowConfidence) ? parsed.lowConfidence : [];
+      onParsed({ ...parsed, ticketImagePath, missingFields: missing, lowConfidence });
       setStaged(null);
       if (missing.length) {
         setError(`Parser couldn't read: ${missing.join(", ")}. Please confirm before saving.`);
+      } else if (lowConfidence.length) {
+        setError(`Parser inferred: ${lowConfidence.join(", ")}. Double-check these against the ticket.`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse ticket");

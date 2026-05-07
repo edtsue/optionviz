@@ -27,9 +27,12 @@ interface Props {
   trade: Trade;
   onChange: (t: Trade) => void;
   onSave: (t: Trade) => Promise<void>;
+  /** Hide the built-in "Save trade" button — useful when the parent page
+      already owns a Save button (e.g. trade detail page header). */
+  hideSave?: boolean;
 }
 
-export function TradeForm({ trade, onChange, onSave }: Props) {
+export function TradeForm({ trade, onChange, onSave, hideSave = false }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Stable per-leg key for React reconciliation. Tracked outside the trade so
@@ -323,14 +326,16 @@ export function TradeForm({ trade, onChange, onSave }: Props) {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={submit}
-        disabled={busy}
-        className="btn-primary w-full rounded-lg px-4 py-3 text-base font-semibold"
-      >
-        {busy ? "Saving…" : "Save trade"}
-      </button>
+      {!hideSave && (
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="btn-primary w-full rounded-lg px-4 py-3 text-base font-semibold"
+        >
+          {busy ? "Saving…" : "Save trade"}
+        </button>
+      )}
     </div>
   );
 }

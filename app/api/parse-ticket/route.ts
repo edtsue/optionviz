@@ -29,6 +29,9 @@ const TicketSchema = z.object({
   underlyingPrice: z.preprocess((v) => (v == null || v === "" ? 0 : v), z.coerce.number()),
   legs: z.array(LegSchema).min(1),
   notes: z.string().nullable().optional(),
+  /** Free-form list of fields Claude had to infer (e.g. "leg 1 expiration year")
+      so the UI can surface them in amber for the user to confirm. */
+  lowConfidence: z.array(z.string()).default([]).optional(),
 });
 
 const SYSTEM_PROMPT = `You are an options trade-ticket parser. Given a screenshot of a brokerage option order ticket (Schwab SnapTicket, Fidelity, Robinhood, IBKR, ToS, Tastytrade, etc.), extract the trade as strict JSON.
@@ -57,7 +60,8 @@ Return ONLY a JSON object matching:
   "symbol": string,
   "underlyingPrice": number,
   "legs": [{ "type": "call"|"put", "side": "long"|"short", "strike": number|null, "expiration": "YYYY-MM-DD", "quantity": number|null, "premium": number|null }],
-  "notes": string | null
+  "notes": string | null,
+  "lowConfidence": string[]   // list any field you had to infer (e.g. "leg 1 expiration year", "leg 2 premium" if blurry); empty array when everything is clearly visible
 }
 No prose, no markdown fences.`;
 
