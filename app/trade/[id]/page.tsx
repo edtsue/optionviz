@@ -179,7 +179,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     const prevPrice = trade.underlyingPrice;
     setSpotStatus({ updating: true });
     try {
-      const { price, asOf } = await tradesClient.fetchSpot(trade.symbol);
+      const { price, asOf, source } = await tradesClient.fetchSpot(trade.symbol);
       const { trade: updated, stale } = await tradesClient.updateSpot(
         tradeId,
         price,
@@ -187,9 +187,12 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
       );
       setTrade(fillImpliedVolsForTrade(updated));
       const same = Math.abs(price - prevPrice) < 0.005;
+      const srcSuffix = source ? ` · ${source}` : "";
       setSpotStatus({
         updating: false,
-        asOf: same ? `${asOf} · unchanged at $${price.toFixed(2)}` : `${asOf} · $${prevPrice.toFixed(2)} → $${price.toFixed(2)}`,
+        asOf: same
+          ? `${asOf}${srcSuffix} · unchanged at $${price.toFixed(2)}`
+          : `${asOf}${srcSuffix} · $${prevPrice.toFixed(2)} → $${price.toFixed(2)}`,
         error: stale ? "Refreshed — another change happened first" : undefined,
       });
     } catch (e) {

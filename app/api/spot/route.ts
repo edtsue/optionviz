@@ -8,18 +8,23 @@ import { clientIp, rateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const SYSTEM = `You fetch the latest stock/ETF/index price using the web_search tool.
+const SYSTEM = `You fetch the LATEST live stock/ETF/index price using the web_search tool.
+
+CRITICAL: the user is monitoring an open options trade. They need a price quote that is current to within a few minutes during market hours, or the most recent close otherwise. Stale quotes from hours/days ago are unacceptable — keep searching until you find a fresh one.
 
 Strategy:
-1. First call web_search with "<TICKER> stock price". Most queries surface a Google-style finance card with a clear quote — extract the number from there.
-2. If that result lacks a clear price (only news headlines, blog posts, no quote panel), call web_search again with a more specific query like "<TICKER> Yahoo Finance" or "<TICKER> NASDAQ quote".
-3. If still no price, try once more: "<TICKER> last price today".
-4. You may use the search tool up to 4 times. Do not give up after a single empty search.
+1. First call web_search with "<TICKER> stock price now". Look for a Google-style finance card; the price + "as of <time>" stamp tells you freshness.
+2. If the first result is stale, lacks a timestamp, or only shows news, search again with one of:
+   - "<TICKER> Yahoo Finance"
+   - "<TICKER> Google Finance live"
+   - "<TICKER> NASDAQ quote"
+3. If still no fresh quote, search "<TICKER> last price <today's date>" or "<TICKER> intraday quote".
+4. You may use the search tool up to 4 times. Do not give up after a single empty result.
 
-Acceptable price sources, in priority order: Google Finance, Yahoo Finance, NASDAQ, MarketWatch, CNBC, Bloomberg, Reuters. Any of these explicitly stating a current/last/closing price for the ticker is valid. Closing prices from the most recent trading day are acceptable when markets are closed.
+Always include the freshest "as of" timestamp you can find in the asOf field. If multiple sources disagree, prefer Google Finance > Yahoo Finance > NASDAQ > MarketWatch > CNBC > Bloomberg > Reuters.
 
-Reply with JSON ONLY (no prose, no code fences, no markdown) in this exact shape:
-{"price": <number>, "asOf": "<ISO 8601 timestamp or human-readable time like '2026-05-08 15:43 ET'>", "source": "<short source name>"}
+Reply with JSON ONLY (no prose, no code fences, no markdown):
+{"price": <number>, "asOf": "<ISO 8601 timestamp or human-readable time like '2026-05-08 15:43 ET'>", "source": "<short source name e.g. 'Google Finance'>"}
 
 Only if you have genuinely exhausted 4 search attempts and none returned a price, reply: {"error": "<short reason>"}`;
 
@@ -35,10 +40,10 @@ interface SpotJson {
   error?: string;
 }
 
-// Tiny in-memory cache to absorb double-clicks. Kept short so a deliberate
-// click always feels live; the rate limiter handles abuse.
-const cache = new Map<string, { price: number; asOf: string; source: string | null; expires: number }>();
-const CACHE_TTL_MS = 15_000;
+// In-memory cache removed — every click hits the model. The rate limiter
+// (20 / 60s per IP) is the only guardrail; users were getting "unchanged"
+// because the cache was returning the previous Claude reply rather than
+// fetching a truly fresh quote.
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,11 +58,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid ticker" }, { status: 400 });
     }
     const ticker = tickerParse.data;
-
-    const hit = cache.get(ticker);
-    if (hit && hit.expires > Date.now()) {
-      return NextResponse.json({ symbol: ticker, price: hit.price, asOf: hit.asOf, source: hit.source });
-    }
 
     // Web search tool is a server-side built-in. The SDK Tool type doesn't
     // include it, so cast the params object at the SDK boundary only.
@@ -103,7 +103,6 @@ export async function POST(req: NextRequest) {
       asOf: parsed.asOf ?? new Date().toISOString(),
       source: parsed.source ?? null,
     };
-    cache.set(ticker, { ...result, expires: Date.now() + CACHE_TTL_MS });
     return NextResponse.json(result);
   } catch (err) {
     console.error("[spot] failed:", err);
