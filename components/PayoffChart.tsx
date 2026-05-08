@@ -50,6 +50,25 @@ function fmtMoney(v: number, big = false): string {
   return `$${v.toFixed(2)}`;
 }
 
+// Min/max across the three P/L series (today / mid / expiry), padded by 5%
+// so the curves don't kiss the chart edges.
+function computeYRange(series: readonly (readonly number[])[]): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  for (let s = 1; s < series.length; s++) {
+    const arr = series[s];
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      if (v == null || isNaN(v)) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  if (!isFinite(min) || !isFinite(max)) return { min: -1, max: 1 };
+  const pad = Math.max(1, (max - min) * 0.05);
+  return { min: min - pad, max: max + pad };
+}
+
 function fmtSigned(v: number): string {
   const sign = v >= 0 ? "+" : "−";
   return `${sign}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -82,9 +101,10 @@ export function PayoffChart({
   const scrubRafRef = useRef<number | null>(null);
   const pendingScrubRef = useRef<number | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
-  // Full data x-range (refreshed on every setData) — used as the clamp
-  // for zoom-out and as the target for double-click reset.
+  // Full data x-range and the auto-fit y-range as of the last data swap.
+  // Used to clamp zoom-out and for double-click reset.
   const xRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
+  const yResetRef = useRef<{ min: number; max: number } | null>(null);
   // Bumped on plot init, setData, and resize so the marker overlay re-reads
   // the plot's bbox / x-scale and reflows its labels. Replaces a runaway
   // requestAnimationFrame loop that was re-rendering at 60fps forever.
@@ -328,10 +348,11 @@ export function PayoffChart({
     // First marker layout pass after the plot has computed its bbox.
     bumpLayout();
 
-    // Initialize the data-range ref from the first series. Updated on each
+    // Initialize the data-range refs from the first series. Updated on each
     // setData (see series useEffect below).
     const xs0 = series[0];
     xRangeRef.current = { min: xs0[0], max: xs0[xs0.length - 1] };
+    yResetRef.current = computeYRange(series);
 
     // Zoom handler: anchored to the cursor's x position so the underlying
     // value under the pointer stays put while the range expands/contracts.
@@ -369,44 +390,78 @@ export function PayoffChart({
     }
 
     function onDblClick() {
-      const { min, max } = xRangeRef.current;
-      u.setScale("x", { min, max });
+      const xs = xRangeRef.current;
+      const ys = yResetRef.current;
+      u.batch(() => {
+        u.setScale("x", { min: xs.min, max: xs.max });
+        if (ys) u.setScale("y", { min: ys.min, max: ys.max });
+      });
       bumpLayout();
     }
 
-    // Hold-and-drag pan: click + drag horizontally translates the x-domain.
-    // Pan is clamped so the user cannot drag past the full data range.
-    // We also bypass uPlot's hover scrub during a pan gesture.
-    let panStart: { x: number; min: number; max: number } | null = null;
+    // Hold-and-drag pan in both axes. Drag right → x scrolls left (showing
+    // earlier values). Drag down → y scrolls up (showing larger values).
+    // X is clamped to the data range; y is unclamped so the user can pan
+    // outside the data envelope to inspect the empty quadrants.
+    let panStart: {
+      x: number;
+      y: number;
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+    } | null = null;
     function onMouseDown(e: MouseEvent) {
       if (e.button !== 0) return;
-      const scale = u.scales.x;
-      if (scale.min == null || scale.max == null) return;
-      panStart = { x: e.clientX, min: scale.min, max: scale.max };
+      const xs = u.scales.x;
+      const ys = u.scales.y;
+      if (xs.min == null || xs.max == null || ys.min == null || ys.max == null) return;
+      panStart = {
+        x: e.clientX,
+        y: e.clientY,
+        xMin: xs.min,
+        xMax: xs.max,
+        yMin: ys.min,
+        yMax: ys.max,
+      };
       el.style.cursor = "grabbing";
       e.preventDefault();
     }
     function onMouseMove(e: MouseEvent) {
       if (!panStart) return;
       const bbox = u.bbox;
-      const plotWidth = bbox.width / (devicePixelRatio || 1);
-      if (plotWidth <= 0) return;
-      const span = panStart.max - panStart.min;
+      const dpr = devicePixelRatio || 1;
+      const plotWidth = bbox.width / dpr;
+      const plotHeight = bbox.height / dpr;
+      if (plotWidth <= 0 || plotHeight <= 0) return;
+
+      const xSpan = panStart.xMax - panStart.xMin;
       const dxPx = e.clientX - panStart.x;
-      // Drag right → reveal earlier values → scroll left in data terms.
-      const dxVal = -(dxPx / plotWidth) * span;
+      const dxVal = -(dxPx / plotWidth) * xSpan;
       const { min: dataMin, max: dataMax } = xRangeRef.current;
-      let newMin = panStart.min + dxVal;
-      let newMax = panStart.max + dxVal;
-      if (newMin < dataMin) {
-        newMax += dataMin - newMin;
-        newMin = dataMin;
+      let newXMin = panStart.xMin + dxVal;
+      let newXMax = panStart.xMax + dxVal;
+      if (newXMin < dataMin) {
+        newXMax += dataMin - newXMin;
+        newXMin = dataMin;
       }
-      if (newMax > dataMax) {
-        newMin -= newMax - dataMax;
-        newMax = dataMax;
+      if (newXMax > dataMax) {
+        newXMin -= newXMax - dataMax;
+        newXMax = dataMax;
       }
-      u.setScale("x", { min: newMin, max: newMax });
+
+      const ySpan = panStart.yMax - panStart.yMin;
+      const dyPx = e.clientY - panStart.y;
+      // Pixel y grows downward; chart y grows upward → flip sign so dragging
+      // down moves the visible window toward smaller values.
+      const dyVal = (dyPx / plotHeight) * ySpan;
+      const newYMin = panStart.yMin + dyVal;
+      const newYMax = panStart.yMax + dyVal;
+
+      u.batch(() => {
+        u.setScale("x", { min: newXMin, max: newXMax });
+        u.setScale("y", { min: newYMin, max: newYMax });
+      });
       bumpLayout();
     }
     function onMouseUp() {
@@ -453,6 +508,7 @@ export function PayoffChart({
     if (xs.length) {
       xRangeRef.current = { min: xs[0], max: xs[xs.length - 1] };
     }
+    yResetRef.current = computeYRange(series);
     bumpLayout();
   }, [series]);
 

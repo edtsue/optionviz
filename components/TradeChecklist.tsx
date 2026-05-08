@@ -189,6 +189,27 @@ function TradeChecklistImpl(props: Props) {
   const [saving, setSaving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Per-trade expanded-section memory. Checks already persist server-side
+  // (see GET/PUT below); expanded is purely a UI affordance, so localStorage
+  // is enough — no need to round-trip a DB column for it.
+  const expandedKey = trade.id ? `optionviz.checklist-expanded.${trade.id}` : null;
+  useEffect(() => {
+    if (!expandedKey) return;
+    try {
+      const raw = localStorage.getItem(expandedKey);
+      if (raw) setExpanded(JSON.parse(raw) ?? {});
+      else setExpanded({});
+    } catch {
+      setExpanded({});
+    }
+  }, [expandedKey]);
+  useEffect(() => {
+    if (!expandedKey) return;
+    try {
+      localStorage.setItem(expandedKey, JSON.stringify(expanded));
+    } catch {}
+  }, [expandedKey, expanded]);
+
   // Load existing checklist from Supabase on mount / trade change.
   useEffect(() => {
     let cancelled = false;
