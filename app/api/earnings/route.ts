@@ -5,6 +5,8 @@ import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { EARNINGS_WATCHLIST } from "@/lib/earnings-watchlist";
 import { parseOptionSymbol } from "@/lib/parse-option-symbol";
 import { supabaseAdmin } from "@/lib/supabase/admin.server";
+import { anthropic, CHEAP_MODEL } from "@/lib/claude";
+import { parseClaudeJsonRaw } from "@/lib/claude-json";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -164,6 +166,107 @@ function daysBetween(now: number, future: number): number {
   return Math.round((future - now) / (1000 * 60 * 60 * 24));
 }
 
+// ----- Claude web_search fallback ---------------------------------------
+//
+// Yahoo's quoteSummary endpoint returns nothing for many large-cap tickers
+// without auth cookies — NVDA/AAPL/etc. silently drop out of the list. When
+// that happens for a ticker the user actually cares about (portfolio holding
+// or explicitly requested), we ask Haiku 4.5 to web_search the next earnings
+// date and parse the result. Cached server-side for 6h because earnings
+// schedules don't move often, and only the FIRST refresh after a release
+// pays the search cost.
+
+const CLAUDE_TTL_MS = 6 * 60 * 60 * 1000;
+const claudeCache = new Map<string, { raw: RawEarnings | null; ts: number }>();
+
+const CLAUDE_SYSTEM = `You look up the NEXT upcoming earnings call/report date for a US-listed ticker using the web_search tool.
+
+Strategy:
+1. Search "<TICKER> next earnings date <current year>". Look for an investor-relations press release or a finance card (Yahoo, Nasdaq, Zacks, Seeking Alpha, IR site).
+2. If the first hit is ambiguous or only shows the LAST report, search "<TICKER> earnings call <month> <year>" or "<TICKER> investor relations earnings".
+3. Up to 3 searches.
+
+Return ONLY a JSON object (no prose, no fences):
+{
+  "earningsDate": "YYYY-MM-DD",         // best date you can confirm; null if unsure
+  "callDate": "YYYY-MM-DDTHH:MM:SSZ" | "YYYY-MM-DD" | null,  // separately published call timestamp if shown
+  "isEstimate": boolean,                 // true if labeled "estimated" / "tentative"
+  "source": "<short source name>"        // e.g. "NVIDIA IR", "Nasdaq", "Yahoo"
+}
+
+If you cannot confirm a date in the next 90 days after at most 3 searches, return:
+{ "earningsDate": null, "callDate": null, "isEstimate": false, "source": "no result" }`;
+
+interface ContentBlock {
+  type: string;
+  text?: string;
+}
+
+const ClaudeEarningsSchema = z.object({
+  earningsDate: z.string().nullable().optional(),
+  callDate: z.string().nullable().optional(),
+  isEstimate: z.boolean().optional(),
+  source: z.string().optional(),
+});
+
+function isoToTs(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const d = new Date(s.length === 10 ? `${s}T13:00:00Z` : s);
+  const t = d.getTime();
+  return Number.isFinite(t) ? Math.floor(t / 1000) : null;
+}
+
+async function fetchEarningsFromClaude(ticker: string): Promise<RawEarnings | null> {
+  const cached = claudeCache.get(ticker);
+  if (cached && Date.now() - cached.ts < CLAUDE_TTL_MS) return cached.raw;
+
+  let raw: RawEarnings | null = null;
+  try {
+    // web_search is a server-side tool not in the SDK's Tool union, so cast at
+    // the SDK boundary only.
+    const resp = await anthropic().messages.create({
+      model: CHEAP_MODEL,
+      max_tokens: 1024,
+      system: [{ type: "text", text: CLAUDE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+      messages: [
+        {
+          role: "user",
+          content: `Today is ${new Date().toISOString().slice(0, 10)}. What is the next earnings call/report date for ${ticker}? Return JSON only.`,
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    const blocks = (resp.content ?? []) as ContentBlock[];
+    const text = blocks
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
+      .join("\n")
+      .trim();
+    const parsed = parseClaudeJsonRaw(text);
+    const result = parsed ? ClaudeEarningsSchema.safeParse(parsed) : null;
+    if (result?.success) {
+      const safe = result.data;
+      const earningsTs = isoToTs(safe.earningsDate ?? null);
+      const callTs = isoToTs(safe.callDate ?? null);
+      if (earningsTs) {
+        raw = {
+          earningsTs,
+          callTs,
+          isEstimate: safe.isEstimate ?? true,
+          epsEstimate: null,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn(`[earnings] claude fallback failed for ${ticker}:`, e);
+  }
+
+  claudeCache.set(ticker, { raw, ts: Date.now() });
+  return raw;
+}
+
 export async function POST(req: NextRequest) {
   try {
     // 6 calls/min per IP — each call fans out to ~30 Yahoo requests, so be
@@ -203,11 +306,42 @@ export async function POST(req: NextRequest) {
       tickers.map(async (t) => ({ ticker: t, raw: await fetchEarningsFromYahoo(t) })),
     );
 
-    const items: EarningsItem[] = [];
-    const errors: string[] = [];
+    // Tickers the user explicitly cares about — Claude fallback only burns
+    // tokens on these. Watchlist-only tickers stay Yahoo-only because filling
+    // them all would mean ~30 web_search calls every cold cache.
+    const userTickers = new Set<string>();
+    if (explicitTickers) for (const t of explicitTickers) userTickers.add(t);
+    for (const t of portfolioTickers) userTickers.add(t);
+
+    const yahooByTicker = new Map<string, RawEarnings | null>();
     for (const r of results) {
       if (r.status === "rejected") continue;
-      const { ticker, raw } = r.value;
+      yahooByTicker.set(r.value.ticker, r.value.raw);
+    }
+
+    // Backfill Yahoo misses with Claude+web_search for the tickers we care
+    // about. Run in parallel; cache makes repeats cheap.
+    const claudeBackfillTargets = [...userTickers].filter(
+      (t) => !yahooByTicker.get(t)?.earningsTs,
+    );
+    const claudeResults = await Promise.allSettled(
+      claudeBackfillTargets.map(async (t) => ({
+        ticker: t,
+        raw: await fetchEarningsFromClaude(t),
+      })),
+    );
+    const claudeByTicker = new Map<string, RawEarnings | null>();
+    for (const r of claudeResults) {
+      if (r.status === "fulfilled") claudeByTicker.set(r.value.ticker, r.value.raw);
+    }
+
+    const items: EarningsItem[] = [];
+    const errors: string[] = [];
+    for (const ticker of tickers) {
+      // Prefer Yahoo (has EPS estimates etc.); fall back to Claude.
+      const raw = yahooByTicker.get(ticker)?.earningsTs
+        ? yahooByTicker.get(ticker)
+        : claudeByTicker.get(ticker) ?? null;
       if (!raw) {
         errors.push(ticker);
         continue;

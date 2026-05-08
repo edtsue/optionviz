@@ -13,3 +13,6 @@ export function anthropic(): Anthropic {
 
 export const VISION_MODEL = "claude-sonnet-4-6";
 export const REASONING_MODEL = "claude-sonnet-4-6";
+// Cheap workhorse for fan-out routes (e.g. /api/earnings web_search backfill)
+// where we'd burn Sonnet budget on dozens of low-difficulty lookups.
+export const CHEAP_MODEL = "claude-haiku-4-5-20251001";
