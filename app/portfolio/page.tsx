@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PortfolioSnapshot, PortfolioAnalysis, Holding } from "@/types/portfolio";
 import { resizeImage } from "@/lib/image";
 import { HoldingDetail } from "@/components/HoldingDetail";
@@ -218,29 +218,34 @@ export default function PortfolioPage() {
       ? snapshot.holdings.find((h) => h.symbol === selectedSymbol) ?? null
       : null;
 
-  useRegisterChatContext(
-    snapshot
-      ? selectedHolding
-        ? `Portfolio – inspecting ${selectedHolding.symbol}`
-        : "Portfolio overview"
-      : "Portfolio (no snapshot)",
-    snapshot
-      ? {
-          totalValue: total,
-          cashBalance: snapshot.cashBalance,
-          holdings: snapshot.holdings.map((h) => ({
-            symbol: h.symbol,
-            qty: h.quantity,
-            value: h.marketValue,
-            pnl: h.unrealizedPnL,
-            pnlPct: h.unrealizedPnLPct,
-            pctOfPort: total ? Math.round(((h.marketValue ?? 0) / total) * 1000) / 10 : null,
-          })),
-          selected: selectedHolding?.symbol ?? null,
-          analysisLoaded: !!analysis,
-        }
-      : null,
-  );
+  // CRITICAL: memoize. useRegisterChatContext fires its effect whenever
+  // these change by reference. Without useMemo, every render produces a
+  // fresh holdings array + wrapper object, the effect runs setContext,
+  // the provider state updates, every context consumer (including this
+  // page) re-renders, the cycle repeats — sidebar clicks never get CPU.
+  const chatLabel = snapshot
+    ? selectedHolding
+      ? `Portfolio – inspecting ${selectedHolding.symbol}`
+      : "Portfolio overview"
+    : "Portfolio (no snapshot)";
+  const chatData = useMemo(() => {
+    if (!snapshot) return null;
+    return {
+      totalValue: total,
+      cashBalance: snapshot.cashBalance,
+      holdings: snapshot.holdings.map((h) => ({
+        symbol: h.symbol,
+        qty: h.quantity,
+        value: h.marketValue,
+        pnl: h.unrealizedPnL,
+        pnlPct: h.unrealizedPnLPct,
+        pctOfPort: total ? Math.round(((h.marketValue ?? 0) / total) * 1000) / 10 : null,
+      })),
+      selected: selectedHolding?.symbol ?? null,
+      analysisLoaded: !!analysis,
+    };
+  }, [snapshot, total, selectedHolding, analysis]);
+  useRegisterChatContext(chatLabel, chatData);
 
   return (
     <div className="flex h-[calc(100vh-3rem)] flex-col pl-3 pr-4 py-4 md:h-screen">
