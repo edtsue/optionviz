@@ -206,6 +206,19 @@ export function TradeAnalysis({
         profitSpot={deferredProfitSpot}
         profitGain={profitGain}
       />
+
+      {/* Key-numbers strip — auto-updates as the chart markers change so the
+          user can read Spot / Stop / Take / Breakeven at a glance without
+          scrubbing the chart. */}
+      <KeyNumbersStrip
+        spot={data.filled.underlyingPrice}
+        stopSpot={shortLeg ? stopSpot : null}
+        stopLoss={shortLeg ? stopLoss : null}
+        profitSpot={deferredProfitSpot}
+        profitGain={profitGain}
+        breakevens={data.stats.breakevens}
+      />
+
       {data.kpis.length > 0 && (
         <div className="card card-tight">
           <div className="label mb-2">{data.strategy.label}</div>
@@ -340,6 +353,85 @@ function dayProgressLabel(progress: number, dteAtTarget: number): string {
   if (progress <= 0.001) return "Today";
   if (progress >= 0.999) return "At expiry";
   return `${dteAtTarget.toFixed(0)}d to expiry`;
+}
+
+function KeyNumbersStrip({
+  spot,
+  stopSpot,
+  stopLoss,
+  profitSpot,
+  profitGain,
+  breakevens,
+}: {
+  spot: number;
+  stopSpot: number | null;
+  stopLoss: number | null | undefined;
+  profitSpot: number | null;
+  profitGain: number | null;
+  breakevens: number[];
+}) {
+  const fmt = (v: number) => `$${v.toFixed(2)}`;
+  const fmtSigned = (v: number) =>
+    `${v >= 0 ? "+" : "−"}$${Math.abs(v).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    })}`;
+  return (
+    <div className="card card-tight">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 data-grid">
+        <Cell label="Take" tone="text-emerald-400" empty={profitSpot == null}>
+          {profitSpot != null ? (
+            <>
+              {fmt(profitSpot)}
+              {profitGain != null && (
+                <span className="ml-1 text-[10px] muted">{fmtSigned(profitGain)}</span>
+              )}
+            </>
+          ) : (
+            "—"
+          )}
+        </Cell>
+        <Cell label="Spot" tone="text-accent">
+          {fmt(spot)}
+        </Cell>
+        <Cell label="Stop" tone="text-rose-400" empty={stopSpot == null}>
+          {stopSpot != null ? (
+            <>
+              {fmt(stopSpot)}
+              {stopLoss != null && (
+                <span className="ml-1 text-[10px] muted">{fmtSigned(stopLoss)}</span>
+              )}
+            </>
+          ) : (
+            "—"
+          )}
+        </Cell>
+        <Cell label="Breakeven" tone="text-amber-400" empty={breakevens.length === 0}>
+          {breakevens.length === 0
+            ? "—"
+            : breakevens.map((b) => fmt(b)).join(" · ")}
+        </Cell>
+      </div>
+    </div>
+  );
+}
+
+function Cell({
+  label,
+  tone,
+  empty,
+  children,
+}: {
+  label: string;
+  tone?: string;
+  empty?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col">
+      <span className="text-[10px] muted uppercase tracking-wider">{label}</span>
+      <span className={`kpi-sm truncate ${empty ? "muted" : tone ?? ""}`}>{children}</span>
+    </div>
+  );
 }
 
 function ChecklistDrawer({
