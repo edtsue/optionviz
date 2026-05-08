@@ -82,19 +82,27 @@ export async function POST(req: NextRequest) {
             ),
     }));
 
-    const contextMessages: Anthropic.MessageParam[] =
-      context !== undefined
-        ? [
-            { role: "user", content: `Current view (JSON):\n${JSON.stringify(context).slice(0, 50_000)}` },
-            { role: "assistant", content: "Got it — I'll keep that in mind." },
-          ]
-        : [];
+    // Build a multi-block system so we can prompt-cache the (large) per-page
+    // context across multi-turn chats. The cache_control mark is on the LAST
+    // block of the prefix we want cached. On follow-up turns within the 5-min
+    // TTL, system + context replay as a cache hit; only the new user turn
+    // pays full input price.
+    const systemBlocks: Anthropic.TextBlockParam[] = [{ type: "text", text: SYSTEM }];
+    if (context !== undefined) {
+      systemBlocks.push({
+        type: "text",
+        text: `Current view (JSON):\n${JSON.stringify(context).slice(0, 50_000)}`,
+        cache_control: { type: "ephemeral" },
+      });
+    } else {
+      systemBlocks[0].cache_control = { type: "ephemeral" };
+    }
 
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
       max_tokens: 800,
-      system: SYSTEM,
-      messages: [...contextMessages, ...sdkMessages],
+      system: systemBlocks,
+      messages: sdkMessages,
     });
 
     const text = resp.content

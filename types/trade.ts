@@ -11,6 +11,11 @@ export interface Leg {
   quantity: number;
   premium: number;
   iv?: number | null;
+  /** In-memory flag (not persisted) set by fillImpliedVolsForTrade when the
+   *  Newton/bisection IV solver couldn't converge — the leg's iv is the 0.3
+   *  fallback, so any Greeks/PoP derived from it are best-effort. UI renders
+   *  an amber chip when true. */
+  ivUnsolved?: boolean;
 }
 
 export interface UnderlyingPosition {

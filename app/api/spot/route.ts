@@ -161,20 +161,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "rate limited" }, { status: 429 });
     }
 
-    const body = (await req.json().catch(() => ({}))) as { symbol?: unknown };
+    const body = (await req.json().catch(() => ({}))) as {
+      symbol?: unknown;
+      claudeFallback?: unknown;
+    };
     const tickerParse = TickerSchema.safeParse(body.symbol);
     if (!tickerParse.success) {
       return NextResponse.json({ error: "invalid ticker" }, { status: 400 });
     }
     const ticker = tickerParse.data;
+    // Auto-poll callers send claudeFallback:false so a Yahoo outage doesn't
+    // silently spend Claude tokens at 15s intervals. Manual button omits the
+    // flag and gets the original Yahoo→Claude fallback chain.
+    const allowClaude = body.claudeFallback !== false;
 
-    // Yahoo first — real intraday data, no LLM hallucination risk. Falls back
-    // to Claude+web_search only if Yahoo is unreachable or returns garbage.
     const yahoo = await fetchFromYahoo(ticker);
     if (yahoo) return NextResponse.json(yahoo);
 
-    const claude = await fetchFromClaude(ticker);
-    if (claude) return NextResponse.json(claude);
+    if (allowClaude) {
+      const claude = await fetchFromClaude(ticker);
+      if (claude) return NextResponse.json(claude);
+    }
 
     return NextResponse.json(
       { error: `Could not fetch price for ${ticker}` },

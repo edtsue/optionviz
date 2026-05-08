@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
       max_tokens: 1100,
-      system: SYSTEM,
+      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [
         {
           role: "user",

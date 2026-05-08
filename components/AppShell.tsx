@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { ChatContextProvider } from "@/lib/chat-context";
 import { SettingsButton } from "./SettingsPanel";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 interface Theme {
   accent: string;
@@ -113,7 +114,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (isLogin) {
     return (
       <div className="min-h-screen" style={themeStyle}>
-        <main className="min-h-screen">{children}</main>
+        <main className="min-h-screen">
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </main>
       </div>
     );
   }
@@ -167,7 +170,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="h-full w-px bg-border transition group-hover:bg-accent/60" />
         </div>
 
-        <main className="min-w-0 flex-1 pt-12 pb-6 md:pt-0 md:pb-6">{children}</main>
+        <main className="min-w-0 flex-1 pt-12 pb-6 md:pt-0 md:pb-6">
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </main>
       </div>
     </ChatContextProvider>
   );

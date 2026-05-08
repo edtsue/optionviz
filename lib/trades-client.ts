@@ -65,11 +65,14 @@ export const tradesClient = {
     return { trade: data.trade as Trade };
   },
 
-  async fetchSpot(symbol: string): Promise<{ price: number; asOf: string; source: string | null }> {
+  async fetchSpot(
+    symbol: string,
+    opts: { claudeFallback?: boolean } = {},
+  ): Promise<{ price: number; asOf: string; source: string | null }> {
     const res = await fetch("/api/spot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol }),
+      body: JSON.stringify({ symbol, claudeFallback: opts.claudeFallback ?? true }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));

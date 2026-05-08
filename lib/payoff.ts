@@ -239,6 +239,39 @@ export function tradeStats(trade: Trade): TradeStats {
   };
 }
 
+// Delta-weighted blend of leg IVs. Legs near the money (|delta| close to 0.5)
+// dominate the lognormal drift more than far-OTM tails, so for credit spreads
+// the short leg drives sigma. Falls back to simple average if all deltas
+// degenerate to zero.
+export function blendIV(trade: Trade): number {
+  const ivs = trade.legs.map((l) => l.iv ?? 0.3);
+  if (ivs.length === 0) return 0.3;
+  const S = trade.underlyingPrice;
+  const r = trade.riskFreeRate;
+  const now = new Date();
+  let sumWIV = 0;
+  let sumW = 0;
+  for (const l of trade.legs) {
+    const iv = l.iv ?? 0.3;
+    const T = yearsBetween(now, new Date(l.expiration));
+    const delta =
+      T > 0
+        ? Math.abs(bs({ S, K: l.strike, T, r, sigma: iv, type: l.type }).delta)
+        : l.type === "call"
+          ? S > l.strike
+            ? 1
+            : 0
+          : S < l.strike
+            ? 1
+            : 0;
+    const w = delta * Math.abs(l.quantity);
+    sumWIV += w * iv;
+    sumW += w;
+  }
+  if (sumW > 0) return sumWIV / sumW;
+  return ivs.reduce((a, b) => a + b, 0) / ivs.length;
+}
+
 function approxPoP(trade: Trade, breakevens: number[]): number | undefined {
   if (breakevens.length === 0 || trade.legs.length === 0) return undefined;
   // Skip calendars/diagonals: lognormal sim through the latest expiry
@@ -250,8 +283,7 @@ function approxPoP(trade: Trade, breakevens: number[]): number | undefined {
   );
   const T = yearsBetween(new Date(), lastExpiry);
   if (T <= 0) return undefined;
-  const ivs = trade.legs.map((l) => l.iv ?? 0.3);
-  const sigma = ivs.reduce((a, b) => a + b, 0) / ivs.length;
+  const sigma = blendIV(trade);
   // Deterministic PRNG seeded by the position so results don't jitter between
   // renders for the same trade. 10k samples → ~0.5% std error on a 50% PoP.
   const seed = popSeed(trade);
@@ -322,7 +354,7 @@ export function fillImpliedVolsForTrade(trade: Trade): Trade {
   const filled: Trade = {
     ...trade,
     legs: trade.legs.map((l) => {
-      if (l.iv != null) return l;
+      if (l.iv != null) return { ...l, ivUnsolved: false };
       const expiry = new Date(l.expiration);
       const T = yearsBetween(now, expiry);
       const iv = impliedVol(
@@ -333,7 +365,13 @@ export function fillImpliedVolsForTrade(trade: Trade): Trade {
         trade.riskFreeRate,
         l.type,
       );
-      return { ...l, iv: iv ?? 0.3 };
+      // Solver returns null when bisection can't converge (e.g. premium below
+      // intrinsic, illiquid quotes, malformed ticket parses). Keep the 0.3
+      // fallback so the chart still renders, but flag it loudly so the UI
+      // never silently displays Greeks computed from a guess.
+      return iv == null
+        ? { ...l, iv: 0.3, ivUnsolved: true }
+        : { ...l, iv, ivUnsolved: false };
     }),
   };
   if (key) {

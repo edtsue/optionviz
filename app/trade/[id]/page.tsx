@@ -96,12 +96,87 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
   const [spotStatus, setSpotStatus] = useState<{ updating: boolean; asOf?: string; error?: string }>({
     updating: false,
   });
+  // Auto-refreshing in-memory spot. Polls /api/spot every 15s while the tab is
+  // visible (Yahoo only — claudeFallback:false so a Yahoo outage doesn't burn
+  // Claude tokens). Updates the trade's underlyingPrice in memory only;
+  // persisting still requires the manual "Update spot" button.
+  const [liveSpot, setLiveSpot] = useState<{
+    price: number;
+    asOf: string;
+    source: string | null;
+    fetchedAt: number;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const POLL_MS = 15_000;
+
+    async function tick() {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      try {
+        const res = await tradesClient.fetchSpot(initialTrade.symbol, { claudeFallback: false });
+        if (cancelled) return;
+        setLiveSpot({ ...res, fetchedAt: Date.now() });
+        setTrade((prev) =>
+          Math.abs(prev.underlyingPrice - res.price) < 0.005
+            ? prev
+            : fillImpliedVolsForTrade({ ...prev, underlyingPrice: res.price }),
+        );
+      } catch {
+        // swallow — manual button surfaces errors. Auto-poll stays quiet.
+      }
+    }
+
+    tick();
+    const timer = window.setInterval(tick, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [initialTrade.symbol]);
   const [saveStatus, setSaveStatus] = useState<{ saving: boolean; saved?: boolean; error?: string }>({
     saving: false,
   });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [marketView, setMarketView] = useState<MarketView>("neutral");
   const [checklistOpen, setChecklistOpen] = useState(false);
+
+  // Realized-vol IV-rank from /api/iv-rank. Free Yahoo data, server-cached
+  // 30 min, no Claude. Fetched once per symbol.
+  const [ivRank, setIvRank] = useState<{
+    currentVol: number;
+    percentile: number;
+    low: number;
+    high: number;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/iv-rank/${encodeURIComponent(initialTrade.symbol)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => !cancelled && j && setIvRank(j))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialTrade.symbol]);
+
+  // Next earnings / ex-dividend from /api/calendar. Free Yahoo, cached 1h.
+  const [calendar, setCalendar] = useState<{ earnings: string | null; dividend: string | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/calendar/${encodeURIComponent(initialTrade.symbol)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => !cancelled && j && setCalendar(j))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialTrade.symbol]);
 
   // Persist drawer open/closed across reloads.
   useEffect(() => {
@@ -214,12 +289,69 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
               ${trade.underlyingPrice.toFixed(2)}
             </span>
             <span className="text-xs muted">· {VIEW_BIAS[marketView]} bias</span>
+            {liveSpot && (
+              <span className="text-[10px] muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 align-middle" />{" "}
+                live · {new Date(liveSpot.fetchedAt).toLocaleTimeString()}
+                {liveSpot.source ? ` · ${liveSpot.source}` : ""}
+              </span>
+            )}
+            {ivRank && (
+              <span
+                className="rounded-md border border-border bg-white/[0.02] px-1.5 py-0.5 text-[10px] muted"
+                title={`30-day realized vol now ${(ivRank.currentVol * 100).toFixed(1)}% — 1y range ${(ivRank.low * 100).toFixed(0)}–${(ivRank.high * 100).toFixed(0)}%`}
+              >
+                RV {(ivRank.currentVol * 100).toFixed(0)}% · {ivRank.percentile}th pct
+              </span>
+            )}
             {spotStatus.asOf && !spotStatus.error && (
-              <span className="text-[10px] muted">updated {spotStatus.asOf}</span>
+              <span className="text-[10px] muted">saved {spotStatus.asOf}</span>
             )}
             {spotStatus.error && (
               <span className="text-[10px] loss">{spotStatus.error}</span>
             )}
+            {calendar && (calendar.earnings || calendar.dividend) && (() => {
+              const earliestExpiry = trade.legs.length
+                ? new Date(
+                    Math.min(...trade.legs.map((l) => new Date(l.expiration).getTime())),
+                  )
+                : null;
+              const today = new Date();
+              const chips: React.ReactNode[] = [];
+              const days = (iso: string) =>
+                Math.round((new Date(iso).getTime() - today.getTime()) / 86_400_000);
+              if (calendar.earnings) {
+                const d = days(calendar.earnings);
+                if (d >= -1) {
+                  const beforeExpiry =
+                    earliestExpiry && new Date(calendar.earnings) < earliestExpiry;
+                  chips.push(
+                    <span
+                      key="earn"
+                      className={`rounded-md border px-1.5 py-0.5 text-[10px] ${beforeExpiry ? "border-orange-500/50 text-orange-300" : "border-border muted"}`}
+                      title={beforeExpiry ? "Earnings falls inside the trade window" : "Earnings is after expiry"}
+                    >
+                      Earnings {calendar.earnings} ({d}d){beforeExpiry ? " ⚡" : ""}
+                    </span>,
+                  );
+                }
+              }
+              if (calendar.dividend) {
+                const d = days(calendar.dividend);
+                if (d >= -1) {
+                  chips.push(
+                    <span
+                      key="div"
+                      className="rounded-md border border-border px-1.5 py-0.5 text-[10px] muted"
+                      title="Ex-dividend date — early-exercise risk for short ITM calls right before this"
+                    >
+                      Ex-div {calendar.dividend} ({d}d)
+                    </span>,
+                  );
+                }
+              }
+              return chips;
+            })()}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -299,8 +431,18 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
                   {l.quantity}× {l.type === "call" ? "C" : "P"} ${l.strike}
                 </span>
               </div>
-              <div className="text-[11px] muted">
-                {l.expiration} · prem ${l.premium.toFixed(2)} · IV {((l.iv ?? 0) * 100).toFixed(1)}%
+              <div className="flex items-center gap-2 text-[11px] muted">
+                <span>
+                  {l.expiration} · prem ${l.premium.toFixed(2)} · IV {((l.iv ?? 0) * 100).toFixed(1)}%
+                </span>
+                {l.ivUnsolved && (
+                  <span
+                    className="rounded-md border border-orange-500/50 px-1.5 py-0.5 text-[10px] text-orange-300"
+                    title="Couldn't solve implied vol from the entered premium — Greeks for this leg are using a 0.3 fallback. Verify the premium."
+                  >
+                    IV unsolved
+                  </span>
+                )}
               </div>
             </div>
           ))}

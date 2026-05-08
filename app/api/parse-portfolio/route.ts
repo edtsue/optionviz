@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     const resp = await anthropic().messages.create({
       model: VISION_MODEL,
       max_tokens: 4096,
-      system: SYSTEM,
+      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [
         {
           role: "user",

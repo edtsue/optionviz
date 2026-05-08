@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
 import { detectStrategy } from "@/lib/strategies";
+import { fillImpliedVolsForTrade, netGreeks } from "@/lib/payoff";
 import type { Trade } from "@/types/trade";
 
 export default function HomePage() {
@@ -18,6 +19,22 @@ export default function HomePage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load trades"));
   }, []);
+
+  // Book-level Greeks: sum each trade's netGreeks across the open positions.
+  // Filled IVs are needed for legs without an explicit iv (otherwise bs() uses
+  // the 0.3 fallback and the totals get noisy on freshly-uploaded trades).
+  const book = useMemo(() => {
+    if (!trades || trades.length === 0) return null;
+    const totals = { delta: 0, gamma: 0, theta: 0, vega: 0 };
+    for (const t of trades) {
+      const g = netGreeks(fillImpliedVolsForTrade(t));
+      totals.delta += g.delta;
+      totals.gamma += g.gamma;
+      totals.theta += g.theta;
+      totals.vega += g.vega;
+    }
+    return totals;
+  }, [trades]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
@@ -36,6 +53,18 @@ export default function HomePage() {
       {error && (
         <div className="card border-loss/40">
           <p className="text-sm loss">{error}</p>
+        </div>
+      )}
+
+      {book && (
+        <div className="card card-tight">
+          <div className="label mb-2">Book — net Greeks across {trades?.length} open trade{trades && trades.length === 1 ? "" : "s"}</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <BookGreek label="Delta" value={book.delta} fmt={(v) => v.toFixed(0)} />
+            <BookGreek label="Gamma" value={book.gamma} fmt={(v) => v.toFixed(2)} />
+            <BookGreek label="Theta /day" value={book.theta} fmt={(v) => `$${v.toFixed(0)}`} />
+            <BookGreek label="Vega /vol pt" value={book.vega} fmt={(v) => `$${v.toFixed(0)}`} />
+          </div>
         </div>
       )}
 
@@ -86,6 +115,24 @@ export default function HomePage() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function BookGreek({
+  label,
+  value,
+  fmt,
+}: {
+  label: string;
+  value: number;
+  fmt: (v: number) => string;
+}) {
+  const cls = value > 0 ? "gain" : value < 0 ? "loss" : "muted";
+  return (
+    <div className="rounded-md border border-border bg-white/[0.02] px-3 py-2">
+      <div className="text-[10px] muted uppercase tracking-wider">{label}</div>
+      <div className={`mt-0.5 text-xl font-semibold ${cls}`}>{fmt(value)}</div>
     </div>
   );
 }
