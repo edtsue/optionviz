@@ -97,22 +97,46 @@ export default function TodayPage() {
         const trades = await tradesClient.list();
         trades.forEach((t) => t.symbol && set.add(t.symbol.toUpperCase()));
       } catch {}
+      // Pull holdings from cloud first (latest portfolio snapshot), fall back
+      // to localStorage if the API call fails or there's no row yet. Today
+      // chips show only stock/ETF underlyings — options become their
+      // underlying ticker; cash and option-only positions are dropped.
+      let holdings: Array<{ symbol?: string; name?: string | null; assetType?: string | null }> = [];
       try {
-        const raw = localStorage.getItem(PORTFOLIO_KEY);
-        if (raw) {
-          const data = JSON.parse(raw);
-          const holdings = data?.snapshot?.holdings ?? [];
-          for (const h of holdings) {
-            if (!h.symbol) continue;
-            const parsed =
-              parseOptionSymbol(h.symbol) ?? parseOptionSymbol(h.name ?? null);
-            const ticker = parsed?.underlying ?? h.symbol.split(/\s/)[0];
-            if (ticker && ticker.toUpperCase() !== "CASH") {
-              set.add(ticker.toUpperCase());
-            }
-          }
+        const r = await fetch("/api/portfolio", { cache: "no-store" });
+        if (r.ok) {
+          const data = await r.json();
+          holdings = data.portfolio?.snapshot?.holdings ?? [];
         }
       } catch {}
+      if (!holdings.length) {
+        try {
+          const raw = localStorage.getItem(PORTFOLIO_KEY);
+          if (raw) holdings = JSON.parse(raw)?.snapshot?.holdings ?? [];
+        } catch {}
+      }
+      for (const h of holdings) {
+        if (!h.symbol) continue;
+        const symU = h.symbol.toUpperCase();
+        if (symU === "CASH" || h.assetType === "cash") continue;
+        // Options: extract the underlying so the user gets news for the
+        // stock the option is on. Stocks/ETFs: take the symbol directly.
+        if (h.assetType === "option") {
+          const parsed = parseOptionSymbol(h.symbol) ?? parseOptionSymbol(h.name ?? null);
+          if (parsed?.underlying) set.add(parsed.underlying.toUpperCase());
+          continue;
+        }
+        // For stock/etf/other: use the bare symbol if it's a clean ticker.
+        // Reject anything with whitespace (broker option-format leakage like
+        // "AAPL 04/26/2026 200 C" that wasn't tagged as an option).
+        if (!/\s/.test(symU) && /^[A-Z][A-Z0-9.]{0,7}$/.test(symU)) {
+          set.add(symU);
+        } else {
+          // Last-ditch: try parse-option-symbol, take underlying.
+          const parsed = parseOptionSymbol(h.symbol) ?? parseOptionSymbol(h.name ?? null);
+          if (parsed?.underlying) set.add(parsed.underlying.toUpperCase());
+        }
+      }
       setAvailable([...set].sort());
     }
     gather();
