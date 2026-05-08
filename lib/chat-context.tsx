@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 export interface ChatContextValue {
   setContext: (label: string, data: unknown) => void;
@@ -12,11 +12,17 @@ const Ctx = createContext<ChatContextValue | null>(null);
 export function ChatContextProvider({ children }: { children: React.ReactNode }) {
   const [current, setCurrent] = useState<{ label: string; data: unknown } | null>(null);
 
-  const value: ChatContextValue = {
-    setContext: (label, data) => setCurrent({ label, data }),
-    clearContext: () => setCurrent(null),
-    current,
-  };
+  const setContext = useCallback(
+    (label: string, data: unknown) => setCurrent({ label, data }),
+    [],
+  );
+  const clearContext = useCallback(() => setCurrent(null), []);
+
+  // Memoize value so consumers don't re-render on every Provider parent render.
+  const value = useMemo<ChatContextValue>(
+    () => ({ setContext, clearContext, current }),
+    [setContext, clearContext, current],
+  );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

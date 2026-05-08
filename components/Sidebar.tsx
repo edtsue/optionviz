@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
 import { detectStrategy } from "@/lib/strategies";
 import { SettingsButton } from "./SettingsPanel";
+import { ConfirmDialog } from "./ConfirmDialog";
 import type { DetectedStrategy, Trade } from "@/types/trade";
 
 const TRADES_CHANGED_EVENT = "optionviz:trades-changed";
@@ -19,20 +20,34 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const [trades, setTrades] = useState<Trade[] | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Trade | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    let pending: ReturnType<typeof setTimeout> | null = null;
     function load() {
       tradesClient
         .list()
         .then((t) => !cancelled && setTrades(t))
         .catch(() => !cancelled && setTrades([]));
     }
+    // Spot updates on the trade detail page dispatch this same event, so a
+    // burst of spot polls used to trigger a fresh /api/trades refetch each
+    // time. Debounce so we coalesce bursts into a single reload.
+    function scheduleLoad() {
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(() => {
+        pending = null;
+        load();
+      }, 200);
+    }
     load();
-    window.addEventListener(TRADES_CHANGED_EVENT, load);
+    window.addEventListener(TRADES_CHANGED_EVENT, scheduleLoad);
     return () => {
       cancelled = true;
-      window.removeEventListener(TRADES_CHANGED_EVENT, load);
+      if (pending) clearTimeout(pending);
+      window.removeEventListener(TRADES_CHANGED_EVENT, scheduleLoad);
     };
   }, []);
 
@@ -44,6 +59,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const activeTradeId = pathname?.startsWith("/trade/") && !pathname.endsWith("/new")
     ? pathname.split("/")[2]
     : null;
+
+  async function confirmDelete() {
+    if (!pendingDelete?.id) return;
+    const id = pendingDelete.id;
+    setDeleting(true);
+    try {
+      await tradesClient.remove(id);
+      setTrades((prev) => (prev ? prev.filter((t) => t.id !== id) : prev));
+      setPendingDelete(null);
+      if (activeTradeId === id) router.push("/");
+      notifyTradesChanged();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col gap-2 pl-2 pr-1.5 py-2.5">
@@ -100,7 +132,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           {enriched.map(({ trade: t, strategy: strat }) => {
             const active = t.id === activeTradeId;
             return (
-              <li key={t.id}>
+              <li key={t.id} className="group relative">
                 <Link
                   href={`/trade/${t.id}`}
                   onClick={onNavigate}
@@ -110,13 +142,28 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     <span className="text-sm font-semibold">{t.symbol}</span>
                     <span className="text-[11px] muted">{strat.label}</span>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right pr-5">
                     <div className="kpi-xs">${t.underlyingPrice.toFixed(2)}</div>
                     <div className="text-[10px] muted">
                       {t.legs.length}L
                     </div>
                   </div>
                 </Link>
+                <button
+                  type="button"
+                  aria-label={`Delete ${t.symbol} trade`}
+                  title="Delete trade"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPendingDelete(t);
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-textDim opacity-0 transition hover:bg-white/10 hover:text-red-400 focus:opacity-100 focus:outline-none focus-visible:ring-1 focus-visible:ring-red-400 group-hover:opacity-100"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
               </li>
             );
           })}
@@ -126,6 +173,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-t border-border pt-2">
         <SettingsButton />
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete ? `Delete ${pendingDelete.symbol} trade?` : "Delete trade?"}
+        body="This permanently removes the trade and its checklist. This can't be undone."
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => !deleting && setPendingDelete(null)}
+      />
     </aside>
   );
 }

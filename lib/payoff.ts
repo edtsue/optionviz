@@ -53,7 +53,10 @@ export interface PayoffPoint {
 
 // Build a payoff curve over a range of underlying prices.
 // Three series: at expiration, today, and a midpoint date.
-export function buildPayoff(trade: Trade, points = 121): PayoffPoint[] {
+// 61 points is enough resolution because recharts' monotone interpolation
+// smooths between samples — going higher doubled the Black-Scholes call
+// count per chart rebuild for no perceptible visual difference.
+export function buildPayoff(trade: Trade, points = 61): PayoffPoint[] {
   const strikes = trade.legs.map((l) => l.strike);
   const center = trade.underlyingPrice;
   const lo = Math.min(center * 0.6, ...strikes) * 0.9;
@@ -297,9 +300,26 @@ function popSeed(trade: Trade): number {
   return h >>> 0;
 }
 
+// Cache for fillImpliedVolsForTrade. Newton-Raphson per leg is ~50-100x more
+// expensive than the rest of the trade math; the trade detail page calls this
+// on every load + save + spot update, all of which produce the same result
+// for a given (id, updatedAt) pair. Keyed by both so saves bust the cache.
+const ivFilledCache = new Map<string, Trade>();
+const IV_CACHE_LIMIT = 64;
+
+function ivCacheKey(trade: Trade): string | null {
+  if (!trade.id || !trade.updatedAt) return null;
+  return `${trade.id}::${trade.updatedAt}::${trade.underlyingPrice}`;
+}
+
 export function fillImpliedVolsForTrade(trade: Trade): Trade {
+  const key = ivCacheKey(trade);
+  if (key) {
+    const hit = ivFilledCache.get(key);
+    if (hit) return hit;
+  }
   const now = new Date();
-  return {
+  const filled: Trade = {
     ...trade,
     legs: trade.legs.map((l) => {
       if (l.iv != null) return l;
@@ -316,4 +336,12 @@ export function fillImpliedVolsForTrade(trade: Trade): Trade {
       return { ...l, iv: iv ?? 0.3 };
     }),
   };
+  if (key) {
+    if (ivFilledCache.size >= IV_CACHE_LIMIT) {
+      const first = ivFilledCache.keys().next().value;
+      if (first) ivFilledCache.delete(first);
+    }
+    ivFilledCache.set(key, filled);
+  }
+  return filled;
 }

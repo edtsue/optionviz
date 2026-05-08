@@ -8,14 +8,20 @@ import { clientIp, rateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const SYSTEM = `You fetch the latest stock/ETF price using the web_search tool.
+const SYSTEM = `You fetch the latest stock/ETF/index price using the web_search tool.
 
-Always call web_search first with a query like "<TICKER> stock price". Read the most recent quote from the results.
+Strategy:
+1. First call web_search with "<TICKER> stock price". Most queries surface a Google-style finance card with a clear quote — extract the number from there.
+2. If that result lacks a clear price (only news headlines, blog posts, no quote panel), call web_search again with a more specific query like "<TICKER> Yahoo Finance" or "<TICKER> NASDAQ quote".
+3. If still no price, try once more: "<TICKER> last price today".
+4. You may use the search tool up to 4 times. Do not give up after a single empty search.
 
-Reply with JSON ONLY (no prose, no code fences) in this exact shape:
-{"price": <number>, "asOf": "<ISO 8601 timestamp or human-readable time>", "source": "<short source name>"}
+Acceptable price sources, in priority order: Google Finance, Yahoo Finance, NASDAQ, MarketWatch, CNBC, Bloomberg, Reuters. Any of these explicitly stating a current/last/closing price for the ticker is valid. Closing prices from the most recent trading day are acceptable when markets are closed.
 
-If you cannot determine a current price, reply with: {"error": "<short reason>"}`;
+Reply with JSON ONLY (no prose, no code fences, no markdown) in this exact shape:
+{"price": <number>, "asOf": "<ISO 8601 timestamp or human-readable time like '2026-05-08 15:43 ET'>", "source": "<short source name>"}
+
+Only if you have genuinely exhausted 4 search attempts and none returned a price, reply: {"error": "<short reason>"}`;
 
 interface ContentBlock {
   type: string;
@@ -29,9 +35,10 @@ interface SpotJson {
   error?: string;
 }
 
-// Tiny in-memory cache to avoid hammering Claude+web_search on quick re-clicks.
+// Tiny in-memory cache to absorb double-clicks. Kept short so a deliberate
+// click always feels live; the rate limiter handles abuse.
 const cache = new Map<string, { price: number; asOf: string; source: string | null; expires: number }>();
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 15_000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,13 +63,13 @@ export async function POST(req: NextRequest) {
     // include it, so cast the params object at the SDK boundary only.
     const resp = await anthropic().messages.create({
       model: REASONING_MODEL,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: SYSTEM,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
       messages: [
         {
           role: "user",
-          content: `What is the latest trading price for ${ticker}? Return JSON only.`,
+          content: `What is the latest trading price for ${ticker}? Use multiple searches if needed. Return JSON only.`,
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

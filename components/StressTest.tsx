@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { netGreeks, totalPnL } from "@/lib/payoff";
 
@@ -14,24 +14,31 @@ export function StressTest({ trade, maxDaysForward }: Props) {
   const [spotShock, setSpotShock] = useState(0); // % shift to underlying
   const [daysForward, setDaysForward] = useState(0);
 
+  // Defer the slider values so React can keep the slider thumb itself responsive
+  // while the (expensive) Black-Scholes recompute runs at lower priority.
+  // During fast drags this lets React skip intermediate frames entirely.
+  const deferredIvShock = useDeferredValue(ivShock);
+  const deferredSpotShock = useDeferredValue(spotShock);
+  const deferredDaysForward = useDeferredValue(daysForward);
+
   const { stressedTrade, valDate, basePnL, stressedPnL, baseGreeks, stressedGreeks } =
     useMemo(() => {
       const stressedTrade: Trade = {
         ...trade,
-        underlyingPrice: +(trade.underlyingPrice * (1 + spotShock / 100)).toFixed(2),
+        underlyingPrice: +(trade.underlyingPrice * (1 + deferredSpotShock / 100)).toFixed(2),
         legs: trade.legs.map((l) => ({
           ...l,
-          iv: l.iv != null ? Math.max(0.01, l.iv * (1 + ivShock / 100)) : l.iv,
+          iv: l.iv != null ? Math.max(0.01, l.iv * (1 + deferredIvShock / 100)) : l.iv,
         })),
       };
-      const valDate = new Date(Date.now() + daysForward * 86_400_000);
+      const valDate = new Date(Date.now() + deferredDaysForward * 86_400_000);
       const baseValDate = new Date();
       const basePnL = totalPnL(trade, trade.underlyingPrice, baseValDate);
       const stressedPnL = totalPnL(stressedTrade, stressedTrade.underlyingPrice, valDate);
       const baseGreeks = netGreeks(trade, baseValDate);
       const stressedGreeks = netGreeks(stressedTrade, valDate);
       return { stressedTrade, valDate, basePnL, stressedPnL, baseGreeks, stressedGreeks };
-    }, [trade, ivShock, spotShock, daysForward]);
+    }, [trade, deferredIvShock, deferredSpotShock, deferredDaysForward]);
 
   const pnlDelta = stressedPnL - basePnL;
   const dirty = ivShock !== 0 || spotShock !== 0 || daysForward !== 0;

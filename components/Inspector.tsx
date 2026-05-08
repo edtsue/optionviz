@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { Trade } from "@/types/trade";
 import type { NetGreeks, TradeStats } from "@/lib/payoff";
 
@@ -23,7 +23,7 @@ function tone(v: number | "unlimited"): "gain" | "loss" | "" {
   return "";
 }
 
-export function Inspector({ greeks, stats, trade, asOfLabel }: Props) {
+function InspectorImpl({ greeks, stats, trade, asOfLabel }: Props) {
   const [showMore, setShowMore] = useState(false);
 
   const ivs = trade.legs.map((l) => l.iv ?? null).filter((v): v is number => v != null);
@@ -162,3 +162,5 @@ function fmtDecimal(v: number, dp: number): string {
 
 // avoid unused tone helper warnings — keep for future use
 void tone;
+
+export const Inspector = memo(InspectorImpl);

@@ -30,6 +30,9 @@ export default function PortfolioPage() {
   const [paneOpen, setPaneOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Hydrate: localStorage first for instant display, then refresh from cloud
+  // (source of truth). If cloud has a newer/different snapshot it overwrites.
+  // Today page also reads localStorage so we keep that in sync.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
@@ -39,12 +42,48 @@ export default function PortfolioPage() {
         setAnalysis(saved.analysis ?? null);
       }
     } catch {}
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/portfolio", { cache: "no-store" });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled) return;
+        const cloudSnap = data.portfolio?.snapshot ?? null;
+        const cloudAnalysis = data.portfolio?.analysis ?? null;
+        if (cloudSnap) {
+          setSnapshot(cloudSnap);
+          setAnalysis(cloudAnalysis);
+          try {
+            localStorage.setItem(
+              KEY,
+              JSON.stringify({ snapshot: cloudSnap, analysis: cloudAnalysis }),
+            );
+          } catch {}
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // Save to localStorage immediately (so Today page picks it up + offline) and
+  // fire-and-forget to the cloud endpoint. Cloud failures are silent here —
+  // they're surfaced in the network tab if the user wants to debug.
   function persist(s: PortfolioSnapshot | null, a: PortfolioAnalysis | null) {
     try {
       localStorage.setItem(KEY, JSON.stringify({ snapshot: s, analysis: a }));
     } catch {}
+    if (s) {
+      fetch("/api/portfolio", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot: s, analysis: a }),
+      }).catch(() => {});
+    } else {
+      fetch("/api/portfolio", { method: "DELETE" }).catch(() => {});
+    }
   }
 
   async function stage(file: File) {

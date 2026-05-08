@@ -23,7 +23,7 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^2.13.3",
+    "uplot": "^1.6.32",
     "zod": "^3.23.8"
   },
   "devDependencies": {

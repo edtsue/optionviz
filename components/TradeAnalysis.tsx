@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import {
@@ -15,10 +15,21 @@ import { yearsBetween } from "@/lib/black-scholes";
 import { PayoffChart } from "@/components/PayoffChart";
 import { TimeSlider } from "@/components/TimeSlider";
 import { Inspector } from "@/components/Inspector";
-import { StressTest } from "@/components/StressTest";
 import { ResizableSplit } from "@/components/ResizableSplit";
-import { TradeChat } from "@/components/TradeChat";
 import { TradeChecklist } from "@/components/TradeChecklist";
+import dynamic from "next/dynamic";
+
+// Heavy below-the-fold components — pull them out of the initial trade-page
+// bundle. StressTest only renders when the user expands its panel; TradeChat
+// is far enough down the page that lazy loading is invisible.
+const StressTest = dynamic(
+  () => import("@/components/StressTest").then((m) => ({ default: m.StressTest })),
+  { ssr: false, loading: () => <div className="card text-xs muted">Loading stress test…</div> },
+);
+const TradeChat = dynamic(
+  () => import("@/components/TradeChat").then((m) => ({ default: m.TradeChat })),
+  { ssr: false, loading: () => <div className="card text-xs muted">Loading chat…</div> },
+);
 import { TradeInputs } from "@/components/TradeInputs";
 import { computeStopSpot, findShortLeg } from "@/lib/stop-spot";
 
@@ -40,15 +51,43 @@ export function TradeAnalysis({
   onMarketViewChange?: (v: MarketView) => void;
 }) {
   const [dayProgress, setDayProgress] = useState(0);
-  const [scrubSpot, setScrubSpot] = useState<number | null>(null);
   const [showStress, setShowStress] = useState(false);
   const [stopMultiplier, setStopMultiplier] = useState(2.0);
+  const [profitTargetSpot, setProfitTargetSpot] = useState<number | null>(null);
+  // Deferred copy used for chart rendering: clicking a profit row updates the
+  // table-row highlight immediately while the chart marker re-renders at lower
+  // priority. Eliminates the input-stutter on slow trades.
+  const deferredProfitSpot = useDeferredValue(profitTargetSpot);
+  const handleProfitTargetSpotChange = useCallback((spot: number | null) => {
+    setProfitTargetSpot(spot);
+  }, []);
+  const [checklistOpen, setChecklistOpen] = useState(true);
+
+  // Persist checklist open/closed across page loads.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("optionviz.checklist-open");
+      if (raw === "0") setChecklistOpen(false);
+      else if (raw === "1") setChecklistOpen(true);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("optionviz.checklist-open", checklistOpen ? "1" : "0");
+    } catch {}
+  }, [checklistOpen]);
+
   const [marketViewLocal, setMarketViewLocal] = useState<MarketView>("neutral");
   const marketView = marketViewProp ?? marketViewLocal;
-  const setMarketView = (v: MarketView) => {
-    setMarketViewLocal(v);
-    onMarketViewChange?.(v);
-  };
+  // Stable identity so React.memo'd children (TradeChecklist) don't re-render
+  // every time TradeAnalysis renders for unrelated reasons.
+  const setMarketView = useCallback(
+    (v: MarketView) => {
+      setMarketViewLocal(v);
+      onMarketViewChange?.(v);
+    },
+    [onMarketViewChange],
+  );
   const [strategy, setStrategy] = useState<Strategy>("covered_call");
 
   const ready = useMemo(() => {
@@ -84,6 +123,16 @@ export function TradeAnalysis({
     if (!shortLeg) return null;
     return computeStopSpot({ trade, shortLeg, multiplier: stopMultiplier });
   }, [trade, shortLeg, stopMultiplier]);
+
+  // Total dollar P/L at the user-picked profit-take spot (today). null
+  // means no row is selected → chart doesn't draw the green target line.
+  // Tied to deferredProfitSpot so the heavy P/L recompute defers a tick
+  // behind the click; the checklist row highlights immediately.
+  const profitGain = useMemo(() => {
+    if (deferredProfitSpot == null) return null;
+    const filled = fillImpliedVolsForTrade(trade);
+    return totalPnL(filled, deferredProfitSpot, new Date());
+  }, [trade, deferredProfitSpot]);
 
   // Total dollar P/L if the BTC stop fires at stopSpot today (option leg(s)
   // re-priced via Black-Scholes + any underlying mark-to-market).
@@ -167,10 +216,10 @@ export function TradeAnalysis({
         breakevens={data.stats.breakevens}
         midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
         oneSigmaBand={data.oneSigmaBand}
-        scrubSpot={scrubSpot}
-        onScrub={setScrubSpot}
         stopSpot={shortLeg ? stopSpot : null}
         stopLoss={shortLeg ? stopLoss : null}
+        profitSpot={deferredProfitSpot}
+        profitGain={profitGain}
       />
       {data.kpis.length > 0 && (
         <div className="card card-tight">
@@ -238,6 +287,8 @@ export function TradeAnalysis({
       onStrategyChange={setStrategy}
       stopSpot={stopSpot}
       stopLoss={stopLoss}
+      profitTargetSpot={profitTargetSpot}
+      onProfitTargetSpotChange={handleProfitTargetSpotChange}
     />
   );
 
@@ -251,8 +302,8 @@ export function TradeAnalysis({
     );
   }
 
-  // Three-pane layout: outer split keeps the checklist as a fixed-px column on
-  // the far right; inner split keeps the chart-area | inspector arrangement.
+  // Two-pane chart | inspector layout. Checklist lives in an off-canvas
+  // drawer (below) so the chart gets full available width by default.
   const inner = (
     <ResizableSplit
       id="trade-chart-inspector"
@@ -268,17 +319,92 @@ export function TradeAnalysis({
   );
 
   return (
-    <ResizableSplit
-      id="trade-checklist"
-      fixedSide="end"
-      defaultPx={320}
-      minPx={260}
-      maxPx={460}
-      breakpoint="xl"
+    <ChecklistDrawerLayout
+      open={checklistOpen}
+      onOpenChange={setChecklistOpen}
     >
       {inner}
       {checklist}
-    </ResizableSplit>
+    </ChecklistDrawerLayout>
+  );
+}
+
+// Renders the trade view with the checklist as a slide-in drawer overlay.
+// Header pill toggles open; backdrop click and Escape close. Drawer width
+// is fixed (no resize) — the chart finally gets the full page width when
+// the drawer is closed, which was the main complaint about the old dock.
+function ChecklistDrawerLayout({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  children: [React.ReactNode, React.ReactNode];
+}) {
+  const [inner, drawer] = children;
+
+  // Esc to close when open. No global key handler when closed.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onOpenChange(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onOpenChange]);
+
+  return (
+    <div className="relative">
+      {/* Trigger pill — always visible at top-right of the analysis area. */}
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          onClick={() => onOpenChange(!open)}
+          className="rounded-full border border-border bg-white/[0.03] px-3 py-1 text-[11px] uppercase tracking-wider muted hover:border-accent/50 hover:text-text"
+        >
+          ☰ Checklist
+        </button>
+      </div>
+
+      {inner}
+
+      {/* Backdrop. Pointer events only when open so it never blocks clicks
+          while closed. Fades in/out with a CSS transition. */}
+      <div
+        aria-hidden={!open}
+        onClick={() => onOpenChange(false)}
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-200 ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      />
+
+      {/* Drawer — translates in from the right. Always mounted so the
+          checklist component keeps its loaded state across opens. */}
+      <aside
+        aria-hidden={!open}
+        aria-label="Trade checklist"
+        className={`fixed right-0 top-0 z-50 flex h-full w-[min(420px,90vw)] flex-col border-l border-border bg-bg shadow-2xl transition-transform duration-250 ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+        style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+          <span className="text-[11px] uppercase tracking-wider muted">Checklist</span>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close checklist"
+            className="rounded p-1 text-textDim hover:bg-white/10 hover:text-text"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">{drawer}</div>
+      </aside>
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import { perShareGreeks, tradeStats } from "@/lib/payoff";
@@ -39,7 +39,7 @@ const SUGGESTED = [
   "Should I roll this position?",
 ];
 
-export function TradeChat({ trade }: { trade: Trade }) {
+function TradeChatImpl({ trade }: { trade: Trade }) {
   const [open, setOpen] = useState(true);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -291,6 +291,11 @@ export function TradeChat({ trade }: { trade: Trade }) {
     </div>
   );
 }
+
+// Memoize so unrelated parent state changes (e.g., the user clicking a row in
+// the profit table) don't force the chat to re-render. The trade prop comes
+// from a useMemo upstream so reference identity is stable across re-renders.
+export const TradeChat = memo(TradeChatImpl);
 
 function MessageBubble({ msg }: { msg: Msg }) {
   const isUser = msg.role === "user";

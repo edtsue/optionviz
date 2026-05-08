@@ -90,6 +90,106 @@ export function computeStopSpot(input: StopSpotInput): number | null {
   return +((leftS + rightS) / 2).toFixed(2);
 }
 
+export interface ProfitSpotInput {
+  trade: Trade;
+  shortLeg: Leg;
+  /** Fraction of original premium captured (0–1). 0.5 = take profit when
+      option price has decayed to 50% of entry premium = captured 50%. */
+  profitFraction: number;
+  asOf?: Date;
+}
+
+export interface ProfitSpotResult {
+  /** Underlying spot at which the short leg's option price reaches the
+      target premium (entry × (1 − profitFraction)). null if the target
+      is unreachable inside a wide search range. */
+  spot: number | null;
+  /** Target option price the user would BTC at. */
+  targetPrice: number;
+  /** True if the option's current price is already at/below the target
+      (profit already captured at current spot, no spot move needed). */
+  alreadyReached: boolean;
+}
+
+/**
+ * Returns the spot at which the short leg's option price drops to
+ * `entry × (1 − profitFraction)` — i.e. the price at which the user
+ * would BTC for that profit-taking level.
+ */
+export function computeProfitSpot(input: ProfitSpotInput): ProfitSpotResult {
+  const empty = (targetPrice: number): ProfitSpotResult => ({
+    spot: null,
+    targetPrice,
+    alreadyReached: false,
+  });
+  const { trade, shortLeg, profitFraction } = input;
+  if (!shortLeg || shortLeg.side !== "short") return empty(0);
+  if (
+    !Number.isFinite(profitFraction) ||
+    profitFraction <= 0 ||
+    profitFraction >= 1
+  )
+    return empty(0);
+
+  const target = shortLeg.premium * (1 - profitFraction);
+  if (!Number.isFinite(target) || target <= 0) return empty(target);
+
+  const asOf = input.asOf ?? new Date();
+  const expiry = new Date(shortLeg.expiration);
+  const T = yearsBetween(asOf, expiry);
+  if (T <= 0) return empty(target);
+
+  const sigma = shortLeg.iv && shortLeg.iv > 0 ? shortLeg.iv : DEFAULT_IV;
+  const r = trade.riskFreeRate ?? 0.04;
+  const S0 = trade.underlyingPrice;
+  if (!S0 || S0 <= 0) return empty(target);
+
+  const priceAt = (S: number) =>
+    bs({ S, K: shortLeg.strike, T, r, sigma, type: shortLeg.type }).price;
+
+  const isCall = shortLeg.type === "call";
+  const currentPrice = priceAt(S0);
+
+  if (currentPrice <= target) {
+    return { spot: S0, targetPrice: target, alreadyReached: true };
+  }
+
+  // Short call: option price increases with S. To drop price → drop S.
+  // Search [0.05·S0, S0]. Short put: opposite — search [S0, 10·S0].
+  let leftS: number, rightS: number;
+  if (isCall) {
+    leftS = S0 * 0.05;
+    rightS = S0;
+    if (priceAt(leftS) > target) return empty(target);
+  } else {
+    leftS = S0;
+    rightS = S0 * 10;
+    if (priceAt(rightS) > target) return empty(target);
+  }
+
+  for (let i = 0; i < 50; i++) {
+    const mid = (leftS + rightS) / 2;
+    const p = priceAt(mid);
+    if (Math.abs(p - target) < 0.005) {
+      return { spot: +mid.toFixed(2), targetPrice: target, alreadyReached: false };
+    }
+    if (isCall) {
+      // higher S → higher price. p > target → narrow upper bound.
+      if (p > target) rightS = mid;
+      else leftS = mid;
+    } else {
+      // higher S → lower price. p > target → narrow lower bound (raise S).
+      if (p > target) leftS = mid;
+      else rightS = mid;
+    }
+  }
+  return {
+    spot: +((leftS + rightS) / 2).toFixed(2),
+    targetPrice: target,
+    alreadyReached: false,
+  };
+}
+
 /**
  * Find the dominant short option leg in the trade. Returns null if there is
  * no short single-leg position. Used to anchor the checklist + stop arrow.

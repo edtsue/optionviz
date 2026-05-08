@@ -1,6 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
+import { computeProfitSpot, findShortLeg } from "@/lib/stop-spot";
+import { totalPnL } from "@/lib/payoff";
 
 type Strategy = "covered_call" | "cash_secured_put";
 type MarketView = "bull" | "neutral" | "bear";
@@ -153,9 +155,13 @@ interface Props {
   stopSpot: number | null;
   /** Computed dollar P/L at stop trigger (display-only, usually negative). */
   stopLoss?: number | null;
+  /** Currently-selected profit-target spot (drives chart marker + active row). */
+  profitTargetSpot?: number | null;
+  /** Click handler when a row in the profit table is selected. Pass null to clear. */
+  onProfitTargetSpotChange?: (spot: number | null) => void;
 }
 
-export function TradeChecklist(props: Props) {
+function TradeChecklistImpl(props: Props) {
   const {
     trade,
     detectedStrategy,
@@ -167,6 +173,8 @@ export function TradeChecklist(props: Props) {
     onStrategyChange,
     stopSpot,
     stopLoss,
+    profitTargetSpot,
+    onProfitTargetSpotChange,
   } = props;
 
   const [checked, setChecked] = useState<Record<string, boolean>>({});
@@ -371,21 +379,28 @@ export function TradeChecklist(props: Props) {
           <span>2.5x</span>
           <span>3.0x</span>
         </div>
-        <div className="mt-2 space-y-0.5 text-[11px]">
+        <div className="mt-2 space-y-1 text-[14px] text-orange-400">
           <div>
             Stop trigger:{" "}
             <span className="font-semibold">
               {stopSpot != null ? `spot $${stopSpot.toFixed(2)}` : "—"}
             </span>
           </div>
+          {(() => {
+            const shortLeg = findShortLeg(trade);
+            if (!shortLeg) return null;
+            const contractStop = shortLeg.premium * stopMultiplier;
+            if (!Number.isFinite(contractStop) || contractStop <= 0) return null;
+            return (
+              <div>
+                BTC @{" "}
+                <span className="font-semibold">${contractStop.toFixed(2)}</span>/contract
+              </div>
+            );
+          })()}
           <div>
             Loss at stop:{" "}
-            <span
-              className={
-                "font-semibold " +
-                (stopLoss != null && stopLoss < 0 ? "text-rose-400" : "")
-              }
-            >
+            <span className="font-semibold">
               {stopLoss != null
                 ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
                 : "—"}
@@ -393,6 +408,12 @@ export function TradeChecklist(props: Props) {
           </div>
         </div>
       </div>
+
+      <ProfitMultiplierBox
+        trade={trade}
+        profitTargetSpot={profitTargetSpot ?? null}
+        onProfitTargetSpotChange={onProfitTargetSpotChange}
+      />
 
       {/* Sections */}
       <div className="space-y-1">
@@ -457,6 +478,108 @@ export function TradeChecklist(props: Props) {
         >
           Reset
         </button>
+      </div>
+    </div>
+  );
+}
+
+export const TradeChecklist = memo(TradeChecklistImpl);
+
+const PROFIT_LEVELS = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+
+function ProfitMultiplierBox({
+  trade,
+  profitTargetSpot,
+  onProfitTargetSpotChange,
+}: {
+  trade: Trade;
+  profitTargetSpot: number | null;
+  onProfitTargetSpotChange?: (spot: number | null) => void;
+}) {
+  const shortLeg = useMemo(() => findShortLeg(trade), [trade]);
+
+  const rows = useMemo(() => {
+    if (!shortLeg) return [];
+    const now = new Date();
+    return PROFIT_LEVELS.map((pct) => {
+      const r = computeProfitSpot({
+        trade,
+        shortLeg,
+        profitFraction: pct / 100,
+      });
+      const profit = r.spot != null ? totalPnL(trade, r.spot, now) : null;
+      return {
+        pct,
+        spot: r.spot,
+        contractPrice: r.targetPrice,
+        profit,
+        alreadyReached: r.alreadyReached,
+      };
+    });
+  }, [trade, shortLeg]);
+
+  if (!shortLeg) return null;
+
+  const headerHint = onProfitTargetSpotChange
+    ? "click a row to mark it on the chart"
+    : null;
+
+  return (
+    <div className="rounded-md border border-border bg-white/[0.02] p-2.5">
+      <div className="flex items-baseline justify-between text-[11px]">
+        <span className="muted uppercase tracking-wider">Profit-taking targets</span>
+        {profitTargetSpot != null && onProfitTargetSpotChange && (
+          <button
+            type="button"
+            onClick={() => onProfitTargetSpotChange(null)}
+            className="text-[10px] muted hover:text-text"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {headerHint && <div className="text-[10px] muted">{headerHint}</div>}
+      <div className="mt-2 grid grid-cols-[2.5rem_1fr_1fr_1fr] gap-x-2 text-[11px]">
+        <div className="muted">%</div>
+        <div className="muted">Spot</div>
+        <div className="muted">BTC</div>
+        <div className="muted text-right">Profit</div>
+        {rows.map((r) => {
+          const active =
+            r.spot != null &&
+            profitTargetSpot != null &&
+            Math.abs(r.spot - profitTargetSpot) < 0.01;
+          const clickable = !!(r.spot != null && onProfitTargetSpotChange);
+          return (
+            <button
+              key={r.pct}
+              type="button"
+              disabled={!clickable}
+              onClick={() => {
+                if (!clickable) return;
+                onProfitTargetSpotChange?.(active ? null : r.spot);
+              }}
+              className={`col-span-4 grid grid-cols-[2.5rem_1fr_1fr_1fr] gap-x-2 rounded px-1 py-0.5 text-left transition ${
+                active
+                  ? "bg-emerald-500/15 ring-1 ring-emerald-400"
+                  : clickable
+                    ? "hover:bg-white/[0.04]"
+                    : "opacity-60"
+              }`}
+            >
+              <span className="font-semibold text-emerald-400">{r.pct}%</span>
+              <span>
+                {r.spot != null ? `$${r.spot.toFixed(2)}` : r.alreadyReached ? "now" : "—"}
+              </span>
+              <span>${r.contractPrice.toFixed(2)}</span>
+              <span className="text-right font-semibold">
+                {r.profit != null
+                  ? `${r.profit >= 0 ? "+" : "−"}$${Math.abs(r.profit).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                  : "—"}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
