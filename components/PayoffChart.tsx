@@ -82,6 +82,11 @@ export function PayoffChart({
   const scrubRafRef = useRef<number | null>(null);
   const pendingScrubRef = useRef<number | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  // Bumped on plot init, setData, and resize so the marker overlay re-reads
+  // the plot's bbox / x-scale and reflows its labels. Replaces a runaway
+  // requestAnimationFrame loop that was re-rendering at 60fps forever.
+  const [layoutTick, setLayoutTick] = useState(0);
+  const bumpLayout = () => setLayoutTick((t) => (t + 1) & 0xffff);
 
   // uPlot wants columnar data: [xs, today, mid, expiry].
   const series = useMemo(() => {
@@ -198,9 +203,12 @@ export function PayoffChart({
       ],
       series: [
         {},
-        { label: "Today", stroke: COLORS.today, width: 1.5 },
-        { label: midLabel, stroke: COLORS.mid, width: 2 },
-        { label: "Expiry", stroke: COLORS.expiry, width: 2.25 },
+        // points.show: false on every series — uPlot's default shows dots at
+        // each sample when data density is low (we use 61 points), which the
+        // recharts version never had. Forcing them off keeps the lines clean.
+        { label: "Today", stroke: COLORS.today, width: 1.5, points: { show: false } },
+        { label: midLabel, stroke: COLORS.mid, width: 2, points: { show: false } },
+        { label: "Expiry", stroke: COLORS.expiry, width: 2.25, points: { show: false } },
       ],
       hooks: {
         // Draw the gain/loss shading + ±1σ band + zero baseline before the
@@ -314,11 +322,16 @@ export function PayoffChart({
 
     const u = new uPlot(opts, series as unknown as uPlot.AlignedData, el);
     plotRef.current = u;
+    // First marker layout pass after the plot has computed its bbox.
+    bumpLayout();
 
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
       const h = el.clientHeight;
-      if (w && h) u.setSize({ width: w, height: h });
+      if (w && h) {
+        u.setSize({ width: w, height: h });
+        bumpLayout();
+      }
     });
     ro.observe(el);
 
@@ -336,6 +349,8 @@ export function PayoffChart({
     const u = plotRef.current;
     if (!u) return;
     u.setData(series as unknown as uPlot.AlignedData);
+    // Data swap can change the x-domain → marker pixel positions shift.
+    bumpLayout();
   }, [series]);
 
   return (
@@ -350,7 +365,12 @@ export function PayoffChart({
       </div>
       <div className="relative h-80 w-full sm:h-[28rem]">
         <div ref={containerRef} className="absolute inset-0" />
-        <MarkerOverlay markers={markers} plotRef={plotRef} dataXs={series[0]} />
+        <MarkerOverlay
+          markers={markers}
+          plotRef={plotRef}
+          dataXs={series[0]}
+          layoutTick={layoutTick}
+        />
         <div
           ref={tooltipRef}
           className="pointer-events-none absolute z-20 rounded-md border border-border bg-bg/95 px-2 py-1 text-[11px] backdrop-blur"
@@ -365,23 +385,19 @@ function MarkerOverlay({
   markers,
   plotRef,
   dataXs,
+  layoutTick,
 }: {
   markers: Marker[];
   plotRef: React.MutableRefObject<uPlot | null>;
   dataXs: readonly number[];
+  /** Bumped by parent on plot init / setData / resize so the overlay re-reads
+      pixel positions. Replaces an earlier 60fps rAF loop that was the cause
+      of catastrophic CPU usage on this page. */
+  layoutTick: number;
 }) {
-  const [, setTick] = useState(0);
-  // Resize / data changes can shift pixel positions; tick once per animation
-  // frame to keep markers aligned. Cheap — DOM is tiny.
-  useEffect(() => {
-    let raf = 0;
-    const loop = () => {
-      setTick((t) => (t + 1) & 0xff);
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  // Reading the prop forces React to re-render this component when the parent
+  // bumps it. Suppress unused-var lint since the value itself is unused.
+  void layoutTick;
 
   const u = plotRef.current;
   if (!u || !u.bbox) return null;
