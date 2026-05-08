@@ -43,7 +43,33 @@ const CACHE_KEY = "optionviz.today.v2";
 const PORTFOLIO_KEY = "optionviz.portfolio.v1";
 const SELECTED_KEY = "optionviz.today.selected";
 const MANUAL_KEY = "optionviz.today.manual-tickers";
+const EARNINGS_KEY = "optionviz.today.earnings.v1";
 const MAX_SELECTED = 3;
+
+interface EarningsCacheEntry {
+  data: EarningsResponse;
+  timestamp: number;
+}
+
+function readEarningsCache(): EarningsCacheEntry | null {
+  try {
+    const raw = localStorage.getItem(EARNINGS_KEY);
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as EarningsCacheEntry;
+    if (!entry?.data?.items || typeof entry.timestamp !== "number") return null;
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function writeEarningsCache(entry: EarningsCacheEntry): void {
+  try {
+    localStorage.setItem(EARNINGS_KEY, JSON.stringify(entry));
+  } catch {
+    // ignore — cache is best-effort
+  }
+}
 
 function cacheKeyFor(tickers: string[]): string {
   return [...tickers].map((t) => t.toUpperCase()).sort().join(",");
@@ -86,6 +112,7 @@ export default function TodayPage() {
   const [earningsBusy, setEarningsBusy] = useState(false);
   const [earningsError, setEarningsError] = useState<string | null>(null);
   const [earnings, setEarnings] = useState<EarningsResponse | null>(null);
+  const [earningsFetchedAt, setEarningsFetchedAt] = useState<number | null>(null);
 
   useEffect(() => {
     let initialSel: string[] = [];
@@ -108,6 +135,12 @@ export default function TodayPage() {
     if (cached) {
       setNews(cached.news);
       setLastFetch(cached.timestamp);
+    }
+
+    const earningsCached = readEarningsCache();
+    if (earningsCached) {
+      setEarnings(earningsCached.data);
+      setEarningsFetchedAt(earningsCached.timestamp);
     }
 
     async function gather() {
@@ -228,7 +261,10 @@ export default function TodayPage() {
         throw new Error(j.error ?? `Earnings failed (${res.status})`);
       }
       const data = (await res.json()) as EarningsResponse;
+      const ts = Date.now();
       setEarnings(data);
+      setEarningsFetchedAt(ts);
+      writeEarningsCache({ data, timestamp: ts });
     } catch (e) {
       setEarningsError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -384,6 +420,11 @@ export default function TodayPage() {
               Portfolio holdings + curated tech / AI / space / nuclear / finance watchlist,
               next 14 days.
             </p>
+            {earningsFetchedAt && (
+              <p className="mt-1 text-[10px] muted">
+                Last fetched {new Date(earningsFetchedAt).toLocaleString()}
+              </p>
+            )}
           </div>
           <button
             onClick={fetchEarnings}

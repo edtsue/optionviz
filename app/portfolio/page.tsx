@@ -69,20 +69,31 @@ export default function PortfolioPage() {
   }, []);
 
   // Save to localStorage immediately (so Today page picks it up + offline) and
-  // fire-and-forget to the cloud endpoint. Cloud failures are silent here —
-  // they're surfaced in the network tab if the user wants to debug.
-  function persist(s: PortfolioSnapshot | null, a: PortfolioAnalysis | null) {
+  // mirror to the cloud. Returns a promise so callers can surface failure —
+  // the previous fire-and-forget version dropped analyses on auth-expired
+  // sessions without telling the user.
+  async function persist(
+    s: PortfolioSnapshot | null,
+    a: PortfolioAnalysis | null,
+  ): Promise<void> {
     try {
       localStorage.setItem(KEY, JSON.stringify({ snapshot: s, analysis: a }));
     } catch {}
-    if (s) {
-      fetch("/api/portfolio", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ snapshot: s, analysis: a }),
-      }).catch(() => {});
-    } else {
-      fetch("/api/portfolio", { method: "DELETE" }).catch(() => {});
+    try {
+      const res = s
+        ? await fetch("/api/portfolio", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ snapshot: s, analysis: a }),
+          })
+        : await fetch("/api/portfolio", { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `Cloud save failed (HTTP ${res.status})`);
+      }
+    } catch (e) {
+      console.warn("[portfolio] cloud save failed:", e);
+      throw e;
     }
   }
 
@@ -132,7 +143,7 @@ export default function PortfolioPage() {
       setAnalysis(null);
       setStaged(null);
       setSelectedSymbol(null);
-      persist(parsed, null);
+      await persist(parsed, null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse");
     } finally {
@@ -158,7 +169,17 @@ export default function PortfolioPage() {
       }
       const data = await res.json();
       setAnalysis(data.analysis);
-      persist(snapshot, data.analysis);
+      try {
+        await persist(snapshot, data.analysis);
+      } catch (e) {
+        // Analysis is in memory + localStorage already; cloud save failed.
+        // Surface so the user knows the analysis won't be on other devices.
+        setError(
+          `Analysis ran but cloud save failed: ${
+            e instanceof Error ? e.message : "unknown"
+          }. It's saved locally on this device.`,
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analyze failed");
     } finally {
@@ -200,7 +221,9 @@ export default function PortfolioPage() {
     setAnalysis(null);
     setStaged(null);
     setSelectedSymbol(null);
-    persist(null, null);
+    void persist(null, null).catch(() => {
+      // Best-effort delete; if cloud delete fails the next PUT will overwrite.
+    });
   }
 
   function cancelStaged() {
