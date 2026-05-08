@@ -186,11 +186,14 @@ export async function POST(req: NextRequest) {
 
     const portfolioTickers = await fetchPortfolioTickers();
 
-    // Universe = explicit list (if given) ∪ curated watchlist ∪ portfolio.
+    // Universe = explicit list (if given) ∪ portfolio ∪ curated watchlist.
+    // Insertion order matters: when the universe exceeds MAX_TICKERS, the tail
+    // is dropped — so prioritize what the caller explicitly asked for, then
+    // their holdings, then the curated list.
     const universe = new Set<string>();
-    for (const t of EARNINGS_WATCHLIST) universe.add(t);
-    for (const t of portfolioTickers) universe.add(t);
     if (explicitTickers) for (const t of explicitTickers) universe.add(t);
+    for (const t of portfolioTickers) universe.add(t);
+    for (const t of EARNINGS_WATCHLIST) universe.add(t);
 
     const tickers = [...universe].slice(0, MAX_TICKERS);
     const now = Date.now();
