@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import {
@@ -19,13 +19,8 @@ import { ResizableSplit } from "@/components/ResizableSplit";
 import { TradeChecklist } from "@/components/TradeChecklist";
 import dynamic from "next/dynamic";
 
-// Heavy below-the-fold components — pull them out of the initial trade-page
-// bundle. StressTest only renders when the user expands its panel; TradeChat
-// is far enough down the page that lazy loading is invisible.
-const StressTest = dynamic(
-  () => import("@/components/StressTest").then((m) => ({ default: m.StressTest })),
-  { ssr: false, loading: () => <div className="card text-xs muted">Loading stress test…</div> },
-);
+// TradeChat lazy-loads since it's below the fold and its bundle includes
+// markdown stripping + image resize that the trade page rarely needs first.
 const TradeChat = dynamic(
   () => import("@/components/TradeChat").then((m) => ({ default: m.TradeChat })),
   { ssr: false, loading: () => <div className="card text-xs muted">Loading chat…</div> },
@@ -51,7 +46,6 @@ export function TradeAnalysis({
   onMarketViewChange?: (v: MarketView) => void;
 }) {
   const [dayProgress, setDayProgress] = useState(0);
-  const [showStress, setShowStress] = useState(false);
   const [stopMultiplier, setStopMultiplier] = useState(2.0);
   const [profitTargetSpot, setProfitTargetSpot] = useState<number | null>(null);
   // Deferred copy used for chart rendering: clicking a profit row updates the
@@ -61,21 +55,6 @@ export function TradeAnalysis({
   const handleProfitTargetSpotChange = useCallback((spot: number | null) => {
     setProfitTargetSpot(spot);
   }, []);
-  const [checklistOpen, setChecklistOpen] = useState(true);
-
-  // Persist checklist open/closed across page loads.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("optionviz.checklist-open");
-      if (raw === "0") setChecklistOpen(false);
-      else if (raw === "1") setChecklistOpen(true);
-    } catch {}
-  }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem("optionviz.checklist-open", checklistOpen ? "1" : "0");
-    } catch {}
-  }, [checklistOpen]);
 
   const [marketViewLocal, setMarketViewLocal] = useState<MarketView>("neutral");
   const marketView = marketViewProp ?? marketViewLocal;
@@ -195,7 +174,7 @@ export function TradeAnalysis({
     );
   }
 
-  // Estimate days to last expiry from trade for stress test slider
+  // Days to last expiry — used by the time slider's totalDte upper bound.
   const dteToLastExpiry = data
     ? Math.max(
         1,
@@ -243,21 +222,6 @@ export function TradeAnalysis({
         dteAtTarget={data.dteAtTarget}
         totalDte={dteToLastExpiry}
       />
-      <div>
-        <button
-          type="button"
-          onClick={() => setShowStress((v) => !v)}
-          className="w-full rounded-lg border border-border bg-white/[0.02] px-3 py-2 text-left text-sm hover:border-accent/40"
-        >
-          <span className="muted text-[11px] uppercase tracking-wider">Stress test</span>{" "}
-          <span className="ml-1 muted">{showStress ? "▾" : "▸"}</span>
-        </button>
-        {showStress && (
-          <div className="mt-2">
-            <StressTest trade={data.filled} maxDaysForward={dteToLastExpiry} />
-          </div>
-        )}
-      </div>
 
       <TradeChat trade={data.filled} />
     </div>
@@ -302,15 +266,17 @@ export function TradeAnalysis({
     );
   }
 
-  // Two-pane chart | inspector layout. Checklist lives in an off-canvas
-  // drawer (below) so the chart gets full available width by default.
-  const inner = (
+  // Three-column layout: chart (with KPIs, time slider, chat) | trade inputs
+  // + inspector | trade-plan column with strategy / market view / multipliers
+  // and the 7 checklist sections always visible. The whole layout uses two
+  // nested ResizableSplits so the user can drag the dividers.
+  const innerLeft = (
     <ResizableSplit
       id="trade-chart-inspector"
       fixedSide="end"
-      defaultPx={340}
-      minPx={260}
-      maxPx={520}
+      defaultPx={320}
+      minPx={240}
+      maxPx={480}
       breakpoint="xl"
     >
       {main}
@@ -319,92 +285,17 @@ export function TradeAnalysis({
   );
 
   return (
-    <ChecklistDrawerLayout
-      open={checklistOpen}
-      onOpenChange={setChecklistOpen}
+    <ResizableSplit
+      id="trade-checklist-dock"
+      fixedSide="end"
+      defaultPx={340}
+      minPx={280}
+      maxPx={460}
+      breakpoint="xl"
     >
-      {inner}
+      {innerLeft}
       {checklist}
-    </ChecklistDrawerLayout>
-  );
-}
-
-// Renders the trade view with the checklist as a slide-in drawer overlay.
-// Header pill toggles open; backdrop click and Escape close. Drawer width
-// is fixed (no resize) — the chart finally gets the full page width when
-// the drawer is closed, which was the main complaint about the old dock.
-function ChecklistDrawerLayout({
-  open,
-  onOpenChange,
-  children,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  children: [React.ReactNode, React.ReactNode];
-}) {
-  const [inner, drawer] = children;
-
-  // Esc to close when open. No global key handler when closed.
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onOpenChange(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onOpenChange]);
-
-  return (
-    <div className="relative">
-      {/* Trigger pill — always visible at top-right of the analysis area. */}
-      <div className="mb-2 flex justify-end">
-        <button
-          type="button"
-          onClick={() => onOpenChange(!open)}
-          className="rounded-full border border-border bg-white/[0.03] px-3 py-1 text-[11px] uppercase tracking-wider muted hover:border-accent/50 hover:text-text"
-        >
-          ☰ Checklist
-        </button>
-      </div>
-
-      {inner}
-
-      {/* Backdrop. Pointer events only when open so it never blocks clicks
-          while closed. Fades in/out with a CSS transition. */}
-      <div
-        aria-hidden={!open}
-        onClick={() => onOpenChange(false)}
-        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-200 ${
-          open ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-      />
-
-      {/* Drawer — translates in from the right. Always mounted so the
-          checklist component keeps its loaded state across opens. */}
-      <aside
-        aria-hidden={!open}
-        aria-label="Trade checklist"
-        className={`fixed right-0 top-0 z-50 flex h-full w-[min(420px,90vw)] flex-col border-l border-border bg-bg shadow-2xl transition-transform duration-250 ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-[11px] uppercase tracking-wider muted">Checklist</span>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            aria-label="Close checklist"
-            className="rounded p-1 text-textDim hover:bg-white/10 hover:text-text"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">{drawer}</div>
-      </aside>
-    </div>
+    </ResizableSplit>
   );
 }
 

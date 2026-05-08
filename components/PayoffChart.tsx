@@ -82,6 +82,9 @@ export function PayoffChart({
   const scrubRafRef = useRef<number | null>(null);
   const pendingScrubRef = useRef<number | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  // Full data x-range (refreshed on every setData) — used as the clamp
+  // for zoom-out and as the target for double-click reset.
+  const xRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
   // Bumped on plot init, setData, and resize so the marker overlay re-reads
   // the plot's bbox / x-scale and reflows its labels. Replaces a runaway
   // requestAnimationFrame loop that was re-rendering at 60fps forever.
@@ -325,6 +328,55 @@ export function PayoffChart({
     // First marker layout pass after the plot has computed its bbox.
     bumpLayout();
 
+    // Initialize the data-range ref from the first series. Updated on each
+    // setData (see series useEffect below).
+    const xs0 = series[0];
+    xRangeRef.current = { min: xs0[0], max: xs0[xs0.length - 1] };
+
+    // Zoom handler: anchored to the cursor's x position so the underlying
+    // value under the pointer stays put while the range expands/contracts.
+    // dirSign > 0 = zoom out, < 0 = zoom in.
+    function zoomAtCursor(dirSign: number, intensity: number) {
+      const scale = u.scales.x;
+      if (scale.min == null || scale.max == null) return;
+      const cursorLeft = u.cursor.left ?? -1;
+      const anchorVal =
+        cursorLeft >= 0
+          ? u.posToVal(cursorLeft, "x")
+          : (scale.min + scale.max) / 2;
+      const factor = Math.exp(dirSign * intensity);
+      const newMin = anchorVal - (anchorVal - scale.min) * factor;
+      const newMax = anchorVal + (scale.max - anchorVal) * factor;
+      const { min: dataMin, max: dataMax } = xRangeRef.current;
+      const minSpan = (dataMax - dataMin) * 0.01;
+      if (newMax - newMin < minSpan) return;
+      const clampedMin = Math.max(newMin, dataMin);
+      const clampedMax = Math.min(newMax, dataMax);
+      if (clampedMax - clampedMin < minSpan) return;
+      u.setScale("x", { min: clampedMin, max: clampedMax });
+      bumpLayout();
+    }
+
+    function onWheel(e: WheelEvent) {
+      // ctrlKey = true on Mac trackpad pinch gestures (the OS synthesizes
+      // wheel-with-ctrl). Plain wheel without modifiers also zooms — feels
+      // natural on charts and matches uPlot's reference plugin.
+      e.preventDefault();
+      const perPixel = e.ctrlKey ? 0.012 : 0.0015;
+      const dirSign = e.deltaY > 0 ? 1 : -1;
+      const intensity = Math.min(0.3, Math.abs(e.deltaY) * perPixel);
+      zoomAtCursor(dirSign, intensity);
+    }
+
+    function onDblClick() {
+      const { min, max } = xRangeRef.current;
+      u.setScale("x", { min, max });
+      bumpLayout();
+    }
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("dblclick", onDblClick);
+
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -337,6 +389,8 @@ export function PayoffChart({
 
     return () => {
       ro.disconnect();
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("dblclick", onDblClick);
       u.destroy();
       plotRef.current = null;
       if (scrubRafRef.current != null) cancelAnimationFrame(scrubRafRef.current);
@@ -349,7 +403,10 @@ export function PayoffChart({
     const u = plotRef.current;
     if (!u) return;
     u.setData(series as unknown as uPlot.AlignedData);
-    // Data swap can change the x-domain → marker pixel positions shift.
+    const xs = series[0];
+    if (xs.length) {
+      xRangeRef.current = { min: xs[0], max: xs[xs.length - 1] };
+    }
     bumpLayout();
   }, [series]);
 
