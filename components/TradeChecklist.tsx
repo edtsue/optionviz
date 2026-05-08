@@ -159,6 +159,11 @@ interface Props {
   profitTargetSpot?: number | null;
   /** Click handler when a row in the profit table is selected. Pass null to clear. */
   onProfitTargetSpotChange?: (spot: number | null) => void;
+  /** Render mode. "config" = strategy + market view + multipliers (docked
+      column). "sections" = the 7 checklist sections + Reset (drawer). Both
+      views still own the same API GET/PUT pipeline; rendering twice is the
+      cost we pay to keep state co-located with the API client. */
+  view?: "config" | "sections";
 }
 
 function TradeChecklistImpl(props: Props) {
@@ -175,6 +180,7 @@ function TradeChecklistImpl(props: Props) {
     stopLoss,
     profitTargetSpot,
     onProfitTargetSpotChange,
+    view = "config",
   } = props;
 
   const [checked, setChecked] = useState<Record<string, boolean>>({});
@@ -314,6 +320,7 @@ function TradeChecklistImpl(props: Props) {
         </div>
       )}
 
+      {view === "config" && <>
       {/* Strategy + market view — stacked so neither label/control is squished */}
       <div className="space-y-2">
         <label className="block">
@@ -414,7 +421,9 @@ function TradeChecklistImpl(props: Props) {
         profitTargetSpot={profitTargetSpot ?? null}
         onProfitTargetSpotChange={onProfitTargetSpotChange}
       />
+      </>}
 
+      {view === "sections" && <>
       {/* Sections */}
       <div className="space-y-1">
         {SECTIONS.map((sec) => {
@@ -479,6 +488,7 @@ function TradeChecklistImpl(props: Props) {
           Reset
         </button>
       </div>
+      </>}
     </div>
   );
 }

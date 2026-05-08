@@ -101,6 +101,20 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
   });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [marketView, setMarketView] = useState<MarketView>("neutral");
+  const [checklistOpen, setChecklistOpen] = useState(false);
+
+  // Persist drawer open/closed across reloads.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("optionviz.checklist-drawer");
+      if (raw === "1") setChecklistOpen(true);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("optionviz.checklist-drawer", checklistOpen ? "1" : "0");
+    } catch {}
+  }, [checklistOpen]);
   const strategy = useMemo(() => detectStrategy(trade), [trade]);
   const greeks = useMemo(() => netGreeks(trade), [trade]);
   const stats = useMemo(() => tradeStats(trade), [trade]);
@@ -207,6 +221,14 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setChecklistOpen((v) => !v)}
+            className="btn-ghost rounded-lg px-3 py-1.5 text-sm"
+            aria-expanded={checklistOpen}
+            aria-label="Open checklist"
+          >
+            ☰ Checklist
+          </button>
+          <button
             onClick={onUpdateSpot}
             disabled={spotStatus.updating}
             className="btn-ghost rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
@@ -250,6 +272,8 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         trade={trade}
         marketView={marketView}
         onMarketViewChange={setMarketView}
+        checklistOpen={checklistOpen}
+        onChecklistOpenChange={setChecklistOpen}
       />
 
       <div className="card card-tight">

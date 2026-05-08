@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
 import { detectStrategy } from "@/lib/strategies";
 import {
@@ -36,6 +36,8 @@ export function TradeAnalysis({
   sideBySide = true,
   marketView: marketViewProp,
   onMarketViewChange,
+  checklistOpen = false,
+  onChecklistOpenChange,
 }: {
   trade: Trade;
   sideBySide?: boolean;
@@ -44,6 +46,10 @@ export function TradeAnalysis({
       the user's manual selection instead of the auto-detected strategy bias). */
   marketView?: MarketView;
   onMarketViewChange?: (v: MarketView) => void;
+  /** Drawer open/close state, controlled by the parent so the trigger button
+      can live in the page header. */
+  checklistOpen?: boolean;
+  onChecklistOpenChange?: (v: boolean) => void;
 }) {
   const [dayProgress, setDayProgress] = useState(0);
   const [stopMultiplier, setStopMultiplier] = useState(2.0);
@@ -239,8 +245,15 @@ export function TradeAnalysis({
     </div>
   );
 
-  const checklist = (
+  // Two render-only views over the same TradeChecklist component:
+  // - "config" → strategy + market view + stop/profit multipliers (docked)
+  // - "sections" → the 7 checklist sections + Reset (drawer)
+  // Each instance does its own API GET on mount, but writes only the keys
+  // belonging to its view. The /api/trades/:id/checklist PUT handler upserts
+  // partial fields, so two instances co-exist cleanly.
+  const checklistConfig = (
     <TradeChecklist
+      view="config"
       trade={data.filled}
       detectedStrategy={detected}
       stopMultiplier={stopMultiplier}
@@ -255,13 +268,29 @@ export function TradeAnalysis({
       onProfitTargetSpotChange={handleProfitTargetSpotChange}
     />
   );
+  const checklistSections = (
+    <TradeChecklist
+      view="sections"
+      trade={data.filled}
+      detectedStrategy={detected}
+      stopMultiplier={stopMultiplier}
+      onStopMultiplierChange={setStopMultiplier}
+      marketView={marketView}
+      onMarketViewChange={setMarketView}
+      strategy={strategy}
+      onStrategyChange={setStrategy}
+      stopSpot={stopSpot}
+      stopLoss={stopLoss}
+    />
+  );
 
   if (!sideBySide) {
     return (
       <div className="space-y-3">
         {main}
         {right}
-        {checklist}
+        {checklistConfig}
+        {checklistSections}
       </div>
     );
   }
@@ -285,17 +314,25 @@ export function TradeAnalysis({
   );
 
   return (
-    <ResizableSplit
-      id="trade-checklist-dock"
-      fixedSide="end"
-      defaultPx={340}
-      minPx={280}
-      maxPx={460}
-      breakpoint="xl"
-    >
-      {innerLeft}
-      {checklist}
-    </ResizableSplit>
+    <>
+      <ResizableSplit
+        id="trade-checklist-dock"
+        fixedSide="end"
+        defaultPx={340}
+        minPx={280}
+        maxPx={460}
+        breakpoint="xl"
+      >
+        {innerLeft}
+        {checklistConfig}
+      </ResizableSplit>
+      <ChecklistDrawer
+        open={checklistOpen}
+        onOpenChange={onChecklistOpenChange}
+      >
+        {checklistSections}
+      </ChecklistDrawer>
+    </>
   );
 }
 
@@ -303,4 +340,62 @@ function dayProgressLabel(progress: number, dteAtTarget: number): string {
   if (progress <= 0.001) return "Today";
   if (progress >= 0.999) return "At expiry";
   return `${dteAtTarget.toFixed(0)}d to expiry`;
+}
+
+function ChecklistDrawer({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange?: (v: boolean) => void;
+  children: React.ReactNode;
+}) {
+  // Esc to close. Only attached when open so we don't pollute the global key
+  // map when the drawer isn't visible.
+  useEffect(() => {
+    if (!open || !onOpenChange) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onOpenChange?.(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onOpenChange]);
+
+  return (
+    <>
+      {/* Backdrop. pointer-events:none + opacity:0 while closed so it never
+          intercepts clicks on the underlying page. */}
+      <div
+        aria-hidden={!open}
+        onClick={() => onOpenChange?.(false)}
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-200 ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      />
+      <aside
+        aria-hidden={!open}
+        aria-label="Trade checklist"
+        className={`fixed right-0 top-0 z-50 flex h-full w-[min(380px,90vw)] flex-col border-l border-border bg-bg shadow-2xl transition-transform duration-250 ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+        style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+          <span className="text-[11px] uppercase tracking-wider muted">Checklist</span>
+          <button
+            type="button"
+            onClick={() => onOpenChange?.(false)}
+            aria-label="Close checklist"
+            className="rounded p-1 text-textDim hover:bg-white/10 hover:text-text"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
+      </aside>
+    </>
+  );
 }

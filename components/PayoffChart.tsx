@@ -374,8 +374,51 @@ export function PayoffChart({
       bumpLayout();
     }
 
+    // Hold-and-drag pan: click + drag horizontally translates the x-domain.
+    // Pan is clamped so the user cannot drag past the full data range.
+    // We also bypass uPlot's hover scrub during a pan gesture.
+    let panStart: { x: number; min: number; max: number } | null = null;
+    function onMouseDown(e: MouseEvent) {
+      if (e.button !== 0) return;
+      const scale = u.scales.x;
+      if (scale.min == null || scale.max == null) return;
+      panStart = { x: e.clientX, min: scale.min, max: scale.max };
+      el.style.cursor = "grabbing";
+      e.preventDefault();
+    }
+    function onMouseMove(e: MouseEvent) {
+      if (!panStart) return;
+      const bbox = u.bbox;
+      const plotWidth = bbox.width / (devicePixelRatio || 1);
+      if (plotWidth <= 0) return;
+      const span = panStart.max - panStart.min;
+      const dxPx = e.clientX - panStart.x;
+      // Drag right → reveal earlier values → scroll left in data terms.
+      const dxVal = -(dxPx / plotWidth) * span;
+      const { min: dataMin, max: dataMax } = xRangeRef.current;
+      let newMin = panStart.min + dxVal;
+      let newMax = panStart.max + dxVal;
+      if (newMin < dataMin) {
+        newMax += dataMin - newMin;
+        newMin = dataMin;
+      }
+      if (newMax > dataMax) {
+        newMin -= newMax - dataMax;
+        newMax = dataMax;
+      }
+      u.setScale("x", { min: newMin, max: newMax });
+      bumpLayout();
+    }
+    function onMouseUp() {
+      panStart = null;
+      el.style.cursor = "";
+    }
+
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("dblclick", onDblClick);
+    el.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
 
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
@@ -391,6 +434,9 @@ export function PayoffChart({
       ro.disconnect();
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("dblclick", onDblClick);
+      el.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
       u.destroy();
       plotRef.current = null;
       if (scrubRafRef.current != null) cancelAnimationFrame(scrubRafRef.current);
@@ -421,7 +467,7 @@ export function PayoffChart({
         </div>
       </div>
       <div className="relative h-80 w-full sm:h-[28rem]">
-        <div ref={containerRef} className="absolute inset-0" />
+        <div ref={containerRef} className="absolute inset-0 cursor-grab" />
         <MarkerOverlay
           markers={markers}
           plotRef={plotRef}
