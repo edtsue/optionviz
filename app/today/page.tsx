@@ -21,6 +21,22 @@ interface NewsResponse {
   fallback?: boolean;
 }
 
+interface EarningsItem {
+  ticker: string;
+  earningsDate: string;
+  daysUntil: number;
+  isPortfolioHolding: boolean;
+  isEstimate: boolean;
+  epsEstimate: number | null;
+  callDate: string | null;
+}
+interface EarningsResponse {
+  asOf: string;
+  windowDays: number;
+  items: EarningsItem[];
+  errors: string[];
+}
+
 // v2 — keyed by sorted-ticker-set so switching selections doesn't show stale
 // news from a different basket. Each entry: { news, timestamp }.
 const CACHE_KEY = "optionviz.today.v2";
@@ -67,6 +83,9 @@ export default function TodayPage() {
   const [error, setError] = useState<string | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [lastFetch, setLastFetch] = useState<number | null>(null);
+  const [earningsBusy, setEarningsBusy] = useState(false);
+  const [earningsError, setEarningsError] = useState<string | null>(null);
+  const [earnings, setEarnings] = useState<EarningsResponse | null>(null);
 
   useEffect(() => {
     let initialSel: string[] = [];
@@ -192,6 +211,28 @@ export default function TodayPage() {
       localStorage.setItem(MANUAL_KEY, v);
     } catch {
       // ignore
+    }
+  }
+
+  async function fetchEarnings() {
+    setEarningsBusy(true);
+    setEarningsError(null);
+    try {
+      const res = await fetch("/api/earnings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `Earnings failed (${res.status})`);
+      }
+      const data = (await res.json()) as EarningsResponse;
+      setEarnings(data);
+    } catch (e) {
+      setEarningsError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setEarningsBusy(false);
     }
   }
 
@@ -335,6 +376,31 @@ export default function TodayPage() {
         </label>
       </div>
 
+      <div className="card card-tight space-y-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <div className="label">Upcoming earnings</div>
+            <p className="text-[11px] muted">
+              Portfolio holdings + curated tech / AI / space / nuclear / finance watchlist,
+              next 14 days.
+            </p>
+          </div>
+          <button
+            onClick={fetchEarnings}
+            disabled={earningsBusy}
+            className="btn-primary rounded-lg px-3 py-2 text-sm"
+          >
+            {earningsBusy ? "Searching…" : earnings ? "Refresh" : "Find earnings calls"}
+          </button>
+        </div>
+        {earningsError && (
+          <div className="rounded-lg border border-loss/40 bg-loss/10 p-3 text-xs loss">
+            <strong>Couldn&rsquo;t fetch earnings:</strong> {earningsError}
+          </div>
+        )}
+        {earnings && <EarningsPanel data={earnings} />}
+      </div>
+
       {error && (
         <div className="rounded-lg border border-loss/40 bg-loss/10 p-3 text-sm loss">
           <strong>Couldn&rsquo;t fetch news:</strong> {error}
@@ -382,6 +448,88 @@ export default function TodayPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function EarningsPanel({ data }: { data: EarningsResponse }) {
+  if (data.items.length === 0) {
+    return (
+      <div className="rounded-lg border border-border bg-white/[0.02] p-3 text-xs muted">
+        No earnings in the next {data.windowDays} days for portfolio + watchlist.
+        {data.errors.length > 0 && (
+          <span className="ml-1">
+            ({data.errors.length} ticker{data.errors.length === 1 ? "" : "s"} unavailable)
+          </span>
+        )}
+      </div>
+    );
+  }
+  const portfolioCount = data.items.filter((i) => i.isPortfolioHolding).length;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-baseline gap-3 text-xs muted">
+        <span className="kpi-sm">{data.items.length}</span>
+        <span>upcoming · next {data.windowDays} days</span>
+        {portfolioCount > 0 && (
+          <span className="rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-accent">
+            {portfolioCount} held
+          </span>
+        )}
+        {data.errors.length > 0 && (
+          <span className="ml-auto text-[11px]">
+            unavailable: {data.errors.slice(0, 6).join(", ")}
+            {data.errors.length > 6 ? ` +${data.errors.length - 6}` : ""}
+          </span>
+        )}
+      </div>
+      <ul className="divide-y divide-border rounded-lg border border-border bg-white/[0.02]">
+        {data.items.map((it) => (
+          <li
+            key={it.ticker}
+            className={`flex items-baseline justify-between gap-3 px-3 py-2 ${
+              it.isPortfolioHolding ? "bg-accent/[0.04]" : ""
+            }`}
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-sm font-semibold">{it.ticker}</span>
+              {it.isPortfolioHolding && (
+                <span className="rounded border border-accent/40 px-1 py-0.5 text-[9px] uppercase tracking-wider text-accent">
+                  held
+                </span>
+              )}
+              {it.isEstimate && (
+                <span className="text-[10px] muted">est.</span>
+              )}
+            </div>
+            <div className="flex items-baseline gap-3 text-xs">
+              {it.epsEstimate !== null && (
+                <span className="muted">
+                  EPS est <span className="text-text">${it.epsEstimate.toFixed(2)}</span>
+                </span>
+              )}
+              <span className="muted">
+                {new Date(it.earningsDate).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+              <span
+                className={`tabular-nums ${
+                  it.daysUntil <= 3 ? "warn" : "muted"
+                }`}
+              >
+                {it.daysUntil <= 0
+                  ? "today"
+                  : it.daysUntil === 1
+                    ? "tomorrow"
+                    : `${it.daysUntil}d`}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
