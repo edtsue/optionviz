@@ -53,8 +53,11 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // Run on every page + API route except: static, image optimization, the
-  // login page itself, the login API, and the favicon/manifest.
+  // login page itself, the login API, and public icon/manifest assets.
+  // (Chrome fetches the manifest + icons during "Add to Home Screen" without
+  // necessarily carrying the auth cookie — gating them returned 401 and
+  // collapsed the home-screen icon to the auto-generated "O".)
   matcher: [
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|icon\\.svg|robots\\.txt|sitemap\\.xml|login|api/login|api/logout).*)",
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|icon\\.svg|apple-icon|icon-512|manifest\\.webmanifest|robots\\.txt|sitemap\\.xml|login|api/login|api/logout).*)",
   ],
 };
