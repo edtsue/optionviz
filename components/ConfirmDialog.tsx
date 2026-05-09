@@ -39,12 +39,18 @@ export function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
-      {/* Solid surface — the .card class is translucent and disappears
-          against the dim backdrop, leaving only "haze". Use a real
-          background so the title and buttons are actually visible. */}
+      {/* Solid surface — the .card class is translucent (transparent rgba
+          + backdrop-filter blur) and disappears against the dim overlay.
+          Earlier fix used var(--bg) which is #06080a, basically the same
+          shade as the dimmed page; the card outline showed but the
+          surface had no contrast. Use a clearly lighter solid + a
+          stronger border so the title and buttons read clearly. */}
       <div
-        className="w-full max-w-sm space-y-3 rounded-2xl border border-border p-4 shadow-2xl"
-        style={{ background: "var(--bg)" }}
+        className="w-full max-w-sm space-y-3 rounded-2xl p-4 shadow-2xl"
+        style={{
+          background: "#1a1f2a",
+          border: "1px solid rgba(255,255,255,0.16)",
+        }}
       >
         <div className="text-base font-semibold">{title}</div>
         {body && <p className="text-sm muted">{body}</p>}

@@ -84,8 +84,11 @@ export function CloseTradeDialog({ open, trade, onCancel, onConfirm }: Props) {
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
       <div
-        className="w-full max-w-md space-y-4 rounded-2xl border border-border p-4 shadow-2xl"
-        style={{ background: "var(--bg)" }}
+        className="w-full max-w-md space-y-4 rounded-2xl p-4 shadow-2xl"
+        style={{
+          background: "#1a1f2a",
+          border: "1px solid rgba(255,255,255,0.16)",
+        }}
       >
         <div>
           <div className="text-base font-semibold">Close trade — log to journal</div>

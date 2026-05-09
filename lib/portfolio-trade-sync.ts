@@ -74,19 +74,21 @@ interface SyncResult {
   skipped: number;
 }
 
-// Group key — one trade per (symbol, expiration) pair. A two-leg vertical
-// at the same expiry collapses into one trade with two legs; calendars
-// (different expiries) end up as two separate trades, which mirrors how the
-// rest of the app already treats single-expiry as the simpler case.
-function groupKey(symbol: string, expiration: string): string {
-  return `${symbol.toUpperCase()}|${expiration}`;
+// Identity for a single-leg portfolio-synced trade. One sidebar entry per
+// leg the user holds in the broker, so a 2-leg vertical shows up as two
+// rows. Match key is the full leg coordinates so the sync replaces the
+// matching row when premium/IV move and creates a new one when the
+// position itself changes.
+function legIdentityKey(
+  symbol: string,
+  l: Pick<Leg, "type" | "side" | "strike" | "expiration">,
+): string {
+  return `${symbol.toUpperCase()}|${l.expiration}|${l.type}|${l.side}|${l.strike}`;
 }
 
 function tradeKey(t: Trade): string | null {
-  if (t.legs.length === 0) return null;
-  // All legs share the same expiration in a portfolio-synced trade by
-  // construction. Use the first one.
-  return groupKey(t.symbol, t.legs[0].expiration);
+  if (t.legs.length !== 1) return null;
+  return legIdentityKey(t.symbol, t.legs[0]);
 }
 
 export async function syncPortfolioTrades(
@@ -97,8 +99,15 @@ export async function syncPortfolioTrades(
     (h) => h.assetType === "option" || (h.symbol && /\d{2}\s*[CP]\d|[CP]\d{8}|Call|Put/i.test(h.symbol)),
   );
 
-  // Parse and group.
-  const groups = new Map<string, { symbol: string; expiration: string; legs: Leg[] }>();
+  // Parse each holding into a single-leg trade payload. Per the user's
+  // preference each leg gets its own sidebar entry rather than grouping
+  // a multi-leg structure into one trade — easier to scan, and the
+  // strategy detection still works per-leg.
+  interface ParsedLeg {
+    symbol: string;
+    leg: Leg;
+  }
+  const parsedLegs: ParsedLeg[] = [];
   let skipped = 0;
   for (const h of optionHoldings) {
     const parsed =
@@ -134,15 +143,12 @@ export async function syncPortfolioTrades(
           ? h.iv / 100
           : null,
     };
-    const key = groupKey(parsed.underlying, parsed.expiration);
-    const g = groups.get(key);
-    if (g) g.legs.push(leg);
-    else groups.set(key, { symbol: parsed.underlying, expiration: parsed.expiration, legs: [leg] });
+    parsedLegs.push({ symbol: parsed.underlying, leg });
   }
 
   // Fetch spot for each unique symbol — best-effort, fall back to 0 (the user
   // can hit "Update spot" later if the auto-fetch missed).
-  const symbols = [...new Set([...groups.values()].map((g) => g.symbol))];
+  const symbols = [...new Set(parsedLegs.map((p) => p.symbol))];
   const spotMap = new Map<string, number>();
   await Promise.all(
     symbols.map(async (s) => {
@@ -151,12 +157,12 @@ export async function syncPortfolioTrades(
     }),
   );
 
-  // Build target trade payloads.
-  const targets: Trade[] = [...groups.values()].map((g) => ({
-    symbol: g.symbol,
-    underlyingPrice: spotMap.get(g.symbol) ?? 0,
+  // Build target trade payloads — one per leg.
+  const targets: Trade[] = parsedLegs.map(({ symbol, leg }) => ({
+    symbol,
+    underlyingPrice: spotMap.get(symbol) ?? 0,
     riskFreeRate: 0.045,
-    legs: g.legs,
+    legs: [leg],
     source: "portfolio",
   }));
 
