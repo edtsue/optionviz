@@ -93,7 +93,17 @@ const VIEW_BIAS: Record<MarketView, string> = {
 function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: string }) {
   const router = useRouter();
   const [trade, setTrade] = useState<Trade>(initialTrade);
-  const [spotStatus, setSpotStatus] = useState<{ updating: boolean; asOf?: string; error?: string }>({
+  // The price persisted in the DB. Distinct from trade.underlyingPrice, which
+  // the live-spot poll mutates in memory every 15s — without tracking the DB
+  // value separately, the manual "Update spot" button looks dead because the
+  // visible price was already updated by the poll.
+  const [savedSpot, setSavedSpot] = useState<number>(initialTrade.underlyingPrice);
+  const [spotStatus, setSpotStatus] = useState<{
+    updating: boolean;
+    asOf?: string;
+    error?: string;
+    justSaved?: boolean;
+  }>({
     updating: false,
   });
   // Auto-refreshing in-memory spot. Polls /api/spot every 15s while the tab is
@@ -251,7 +261,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
   }
 
   async function onUpdateSpot() {
-    const prevPrice = trade.underlyingPrice;
+    const prevSaved = savedSpot;
     setSpotStatus({ updating: true });
     try {
       const { price, asOf, source } = await tradesClient.fetchSpot(trade.symbol);
@@ -261,15 +271,23 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
         trade.updatedAt,
       );
       setTrade(fillImpliedVolsForTrade(updated));
-      const same = Math.abs(price - prevPrice) < 0.005;
+      setSavedSpot(price);
+      const sameAsSaved = Math.abs(price - prevSaved) < 0.005;
       const srcSuffix = source ? ` · ${source}` : "";
       setSpotStatus({
         updating: false,
-        asOf: same
-          ? `${asOf}${srcSuffix} · unchanged at $${price.toFixed(2)}`
-          : `${asOf}${srcSuffix} · $${prevPrice.toFixed(2)} → $${price.toFixed(2)}`,
+        justSaved: true,
+        asOf: sameAsSaved
+          ? `${asOf}${srcSuffix} · saved $${price.toFixed(2)} (unchanged)`
+          : `${asOf}${srcSuffix} · $${prevSaved.toFixed(2)} → $${price.toFixed(2)}`,
         error: stale ? "Refreshed — another change happened first" : undefined,
       });
+      // Drop the "✓ Saved" pip after 2s; the asOf text stays as the durable
+      // record of the last save.
+      setTimeout(
+        () => setSpotStatus((s) => (s.justSaved ? { ...s, justSaved: false } : s)),
+        2000,
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "update failed";
       setSpotStatus({ updating: false, error: msg });
@@ -294,6 +312,14 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 align-middle" />{" "}
                 live · {new Date(liveSpot.fetchedAt).toLocaleTimeString()}
                 {liveSpot.source ? ` · ${liveSpot.source}` : ""}
+              </span>
+            )}
+            {Math.abs(trade.underlyingPrice - savedSpot) >= 0.005 && (
+              <span
+                className="rounded-md border border-orange-500/40 px-1.5 py-0.5 text-[10px] text-orange-300"
+                title="The live price differs from what's saved in the database. Tap Update spot to persist it."
+              >
+                unsaved · live ${trade.underlyingPrice.toFixed(2)} vs saved ${savedSpot.toFixed(2)}
               </span>
             )}
             {ivRank && (
@@ -368,7 +394,11 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
             disabled={spotStatus.updating}
             className="btn-ghost rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
           >
-            {spotStatus.updating ? "Updating…" : "Update spot"}
+            {spotStatus.updating
+              ? "Updating…"
+              : spotStatus.justSaved
+                ? `✓ Saved $${savedSpot.toFixed(2)}`
+                : "Update spot"}
           </button>
           <button
             onClick={onSave}
