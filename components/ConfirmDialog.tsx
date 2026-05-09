@@ -39,7 +39,13 @@ export function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
-      <div className="card w-full max-w-sm space-y-3">
+      {/* Solid surface — the .card class is translucent and disappears
+          against the dim backdrop, leaving only "haze". Use a real
+          background so the title and buttons are actually visible. */}
+      <div
+        className="w-full max-w-sm space-y-3 rounded-2xl border border-border p-4 shadow-2xl"
+        style={{ background: "var(--bg)" }}
+      >
         <div className="text-base font-semibold">{title}</div>
         {body && <p className="text-sm muted">{body}</p>}
         <div className="flex justify-end gap-2 pt-2">
