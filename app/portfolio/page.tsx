@@ -5,6 +5,7 @@ import { resizeImage } from "@/lib/image";
 import { HoldingDetail } from "@/components/HoldingDetail";
 import { ResizableSplit } from "@/components/ResizableSplit";
 import { useRegisterChatContext } from "@/lib/chat-context";
+import { notifyTradesChanged } from "@/components/Sidebar";
 
 interface StagedImage {
   file: File;
@@ -144,6 +145,10 @@ export default function PortfolioPage() {
       setStaged(null);
       setSelectedSymbol(null);
       await persist(parsed, null);
+      // The portfolio PUT also runs syncPortfolioTrades server-side, so the
+      // sidebar's trade list needs to refetch to pick up newly-created live
+      // positions / hide closed ones.
+      notifyTradesChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse");
     } finally {

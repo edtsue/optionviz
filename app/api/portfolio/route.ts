@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin.server";
+import { syncPortfolioTrades } from "@/lib/portfolio-trade-sync";
 
 export const runtime = "nodejs";
 
@@ -64,7 +65,17 @@ export async function PUT(req: Request) {
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ portfolio: data as PortfolioRow });
+  // Auto-sync the option holdings into the live trades list. We swallow
+  // errors here so a partial Yahoo outage during sync doesn't fail the
+  // portfolio write itself — the portfolio row is the source of truth and
+  // the next upload will retry.
+  let syncResult: Awaited<ReturnType<typeof syncPortfolioTrades>> | null = null;
+  try {
+    syncResult = await syncPortfolioTrades(parsed.data.snapshot);
+  } catch (e) {
+    console.warn("[portfolio] auto-sync failed:", e);
+  }
+  return NextResponse.json({ portfolio: data as PortfolioRow, sync: syncResult });
 }
 
 export async function DELETE() {

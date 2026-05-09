@@ -138,15 +138,37 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <ul className="flex flex-col gap-0.5">
           {enriched.map(({ trade: t, strategy: strat }) => {
             const active = t.id === activeTradeId;
+            const isPortfolio = t.source === "portfolio";
             return (
               <li key={t.id} className="group relative">
                 <Link
                   href={`/trade/${t.id}`}
                   onClick={onNavigate}
-                  className={`side-row ${active ? "active" : ""}`}
+                  className={`side-row ${active ? "active" : ""} ${
+                    isPortfolio ? "" : "side-row--wip"
+                  }`}
                 >
                   <div className="flex flex-col">
-                    <span className="text-sm font-semibold">{t.symbol}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-sm font-semibold ${isPortfolio ? "" : "text-amber-300"}`}>
+                        {t.symbol}
+                      </span>
+                      {isPortfolio ? (
+                        <span
+                          className="rounded border border-green-500/40 bg-green-500/10 px-1 py-px text-[8px] font-semibold uppercase tracking-wider text-green-400"
+                          title="Position is in your latest broker portfolio upload — auto-synced and refreshed on each upload."
+                        >
+                          live
+                        </span>
+                      ) : (
+                        <span
+                          className="rounded border border-amber-400/40 bg-amber-400/10 px-1 py-px text-[8px] font-semibold uppercase tracking-wider text-amber-300"
+                          title="Manual / aspirational trade — not in your latest portfolio upload."
+                        >
+                          WIP
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[11px] muted">{strat.label}</span>
                   </div>
                   <div className="text-right pr-5">

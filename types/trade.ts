@@ -23,6 +23,8 @@ export interface UnderlyingPosition {
   costBasis: number;
 }
 
+export type TradeSource = "manual" | "portfolio";
+
 export interface Trade {
   id?: string;
   symbol: string;
@@ -32,6 +34,10 @@ export interface Trade {
   underlying?: UnderlyingPosition | null;
   notes?: string | null;
   ticketImagePath?: string | null;
+  /** Where the trade originated. 'manual' = user-created (aspirational/WIP).
+   *  'portfolio' = auto-synced from a broker portfolio upload; the
+   *  /api/portfolio PUT route reconciles these on every snapshot. */
+  source?: TradeSource;
   createdAt?: string;
   updatedAt?: string;
 }

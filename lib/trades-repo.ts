@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "./supabase/admin.server";
-import type { Trade } from "@/types/trade";
+import type { Trade, TradeSource } from "@/types/trade";
 
 interface TradeRow {
   id: string;
@@ -10,6 +10,7 @@ interface TradeRow {
   underlying_cost_basis: number | null;
   notes: string | null;
   ticket_image_path: string | null;
+  source: TradeSource | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +40,7 @@ function rowsToTrade(t: TradeRow, legs: LegRow[]): Trade {
         : null,
     notes: t.notes,
     ticketImagePath: t.ticket_image_path,
+    source: (t.source ?? "manual") as TradeSource,
     createdAt: t.created_at,
     updatedAt: t.updated_at,
     legs: legs
@@ -100,6 +102,7 @@ export async function createTrade(trade: Trade): Promise<string> {
       underlying_cost_basis: trade.underlying?.costBasis ?? null,
       notes: trade.notes ?? null,
       ticket_image_path: trade.ticketImagePath ?? null,
+      source: trade.source ?? "manual",
     })
     .select("id")
     .single();
@@ -214,4 +217,20 @@ export async function deleteTrade(id: string): Promise<void> {
     console.error("trades.delete failed:", error);
     throw pgErr(error, "Delete failed");
   }
+}
+
+export async function listTradesBySource(source: TradeSource): Promise<Trade[]> {
+  const sb = supabaseAdmin();
+  const { data: trades, error } = await sb
+    .from("trades")
+    .select("*")
+    .eq("source", source);
+  if (error) throw error;
+  if (!trades?.length) return [];
+  const ids = trades.map((t) => t.id);
+  const { data: legs, error: e2 } = await sb.from("legs").select("*").in("trade_id", ids);
+  if (e2) throw e2;
+  return trades.map((t) =>
+    rowsToTrade(t as TradeRow, ((legs ?? []) as LegRow[]).filter((l) => l.trade_id === t.id)),
+  );
 }
