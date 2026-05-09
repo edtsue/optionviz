@@ -3,7 +3,7 @@ import { parseOptionSymbol } from "./parse-option-symbol";
 import {
   createTrade,
   deleteTrade,
-  listTradesBySource,
+  listTrades,
   updateTrade,
 } from "./trades-repo";
 import type { Leg, Trade } from "@/types/trade";
@@ -166,11 +166,25 @@ export async function syncPortfolioTrades(
     source: "portfolio",
   }));
 
-  // Reconcile against existing portfolio-sourced trades. Manual trades stay
-  // untouched.
-  const existing = await listTradesBySource("portfolio");
+  // Reconcile against existing portfolio-sourced trades. Manual ('WIP')
+  // trades stay completely untouched — never updated, never deleted, never
+  // duplicated. Manual trades that share an identity (same symbol +
+  // expiration + type + side + strike) with a portfolio position are
+  // treated as "already tracked" — we skip creating the portfolio twin so
+  // the user doesn't see two rows for the same position. To "promote" a
+  // WIP into a live tracked trade, the user deletes the WIP and the next
+  // upload creates the portfolio version.
+  const allExisting = await listTrades();
+  const portfolioExisting = allExisting.filter((t) => t.source === "portfolio");
+  const manualKeys = new Set<string>();
+  for (const t of allExisting) {
+    if (t.source !== "manual") continue;
+    const k = tradeKey(t);
+    if (k) manualKeys.add(k);
+  }
+
   const existingByKey = new Map<string, Trade>();
-  for (const e of existing) {
+  for (const e of portfolioExisting) {
     const k = tradeKey(e);
     if (k) existingByKey.set(k, e);
   }
@@ -184,8 +198,10 @@ export async function syncPortfolioTrades(
   let updated = 0;
   let deleted = 0;
 
-  // Delete: in existing but no longer in portfolio (closed positions).
-  for (const e of existing) {
+  // Delete: in portfolio-sourced existing but no longer in the upload
+  // (closed positions). Manual trades are not in this list, so they are
+  // never deleted.
+  for (const e of portfolioExisting) {
     const k = tradeKey(e);
     if (!k || !targetByKey.has(k)) {
       try {
@@ -200,6 +216,11 @@ export async function syncPortfolioTrades(
   // Update or create.
   for (const t of targets) {
     const k = tradeKey(t)!;
+    if (manualKeys.has(k)) {
+      // A manual WIP already covers this leg — skip to avoid duplicates.
+      skipped++;
+      continue;
+    }
     const prior = existingByKey.get(k);
     if (prior?.id) {
       try {
