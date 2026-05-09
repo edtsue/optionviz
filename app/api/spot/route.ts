@@ -17,10 +17,12 @@ interface SpotResult {
 
 // Yahoo Finance v8 chart endpoint — public, no key, returns live intraday
 // data. Yahoo will return 4xx without a User-Agent, so set a recognizable one.
+// `prepost=true` makes Yahoo include extended-hours quotes so the spot still
+// updates pre-market and after-hours when options can gap on overnight news.
 async function fetchFromYahoo(ticker: string): Promise<SpotResult | null> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
     ticker,
-  )}?interval=1m&range=1d`;
+  )}?interval=1m&range=1d&includePrePost=true`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -53,6 +55,11 @@ async function fetchFromYahoo(ticker: string): Promise<SpotResult | null> {
             meta: z.object({
               regularMarketPrice: z.number(),
               regularMarketTime: z.number().optional(),
+              postMarketPrice: z.number().optional(),
+              postMarketTime: z.number().optional(),
+              preMarketPrice: z.number().optional(),
+              preMarketTime: z.number().optional(),
+              marketState: z.string().optional(),
               symbol: z.string().optional(),
             }),
           }),
@@ -65,14 +72,44 @@ async function fetchFromYahoo(ticker: string): Promise<SpotResult | null> {
   if (!parsed.success) return null;
   const meta = parsed.data.chart.result?.[0]?.meta;
   if (!meta) return null;
-  const asOf = meta.regularMarketTime
-    ? new Date(meta.regularMarketTime * 1000).toISOString()
-    : new Date().toISOString();
+  // Pick the most-recent quote available. Order of preference:
+  //   - post-market (if a post-market trade has happened more recently)
+  //   - pre-market (likewise)
+  //   - regular session
+  // Tag the source so the UI can render "Yahoo (after-hours)" etc. and the
+  // user knows whether the price is from extended hours.
+  const regTime = meta.regularMarketTime ?? 0;
+  const postTime = meta.postMarketTime ?? 0;
+  const preTime = meta.preMarketTime ?? 0;
+  let price = meta.regularMarketPrice;
+  let timeSec = regTime || Math.floor(Date.now() / 1000);
+  let source = "Yahoo Finance";
+  if (
+    typeof meta.postMarketPrice === "number" &&
+    meta.postMarketPrice > 0 &&
+    postTime > regTime
+  ) {
+    price = meta.postMarketPrice;
+    timeSec = postTime;
+    source = "Yahoo (after-hours)";
+  } else if (
+    typeof meta.preMarketPrice === "number" &&
+    meta.preMarketPrice > 0 &&
+    preTime > regTime
+  ) {
+    price = meta.preMarketPrice;
+    timeSec = preTime;
+    source = "Yahoo (pre-market)";
+  } else if (meta.marketState && meta.marketState !== "REGULAR") {
+    // Regular price but market is closed — distinguish "last close" from a
+    // truly live quote so the UI can drop the green "live" dot on weekends.
+    source = "Yahoo (last close)";
+  }
   return {
     symbol: meta.symbol ?? ticker,
-    price: meta.regularMarketPrice,
-    asOf,
-    source: "Yahoo Finance",
+    price,
+    asOf: new Date(timeSec * 1000).toISOString(),
+    source,
   };
 }
 

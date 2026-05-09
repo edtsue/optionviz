@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { TickerSchema } from "@/lib/api-validate";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { anthropic, CHEAP_MODEL } from "@/lib/claude";
+import { parseClaudeJsonRaw } from "@/lib/claude-json";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -18,7 +20,9 @@ interface CalendarResult {
   source: "Yahoo";
 }
 
-const TTL_MS = 60 * 60 * 1000;
+// Bumped from 1h to 6h since the Claude fallback is comparatively expensive
+// and earnings/dividend calendars don't move often.
+const TTL_MS = 6 * 60 * 60 * 1000;
 const cache = new Map<string, { result: CalendarResult; ts: number }>();
 
 const QuoteSummarySchema = z.object({
@@ -89,6 +93,81 @@ async function fetchCalendar(ticker: string): Promise<CalendarResult | null> {
   return { earnings, dividend, source: "Yahoo" };
 }
 
+// ----- Claude web_search fallback ---------------------------------------
+//
+// Mirrors the /api/earnings backfill: Yahoo's quoteSummary returns nothing
+// for many large-cap tickers without auth cookies (NVDA, AAPL, etc.), so the
+// per-trade earnings/ex-div chip silently disappears for the very tickers
+// users care about. When Yahoo blanks, ask Haiku 4.5 to web_search both the
+// next earnings date and the next ex-dividend date.
+
+const ClaudeCalendarSchema = z.object({
+  earningsDate: z.string().nullable().optional(),
+  dividendDate: z.string().nullable().optional(),
+});
+
+const CLAUDE_SYSTEM = `You look up the next earnings call/report date and the next ex-dividend date for a US-listed ticker using web_search.
+
+Strategy:
+1. Search "<TICKER> next earnings date" — finance card or IR press release.
+2. Search "<TICKER> next ex-dividend date" — finance card or company IR.
+3. Up to 3 searches total.
+
+Return ONLY a JSON object (no prose, no fences):
+{
+  "earningsDate": "YYYY-MM-DD" | null,
+  "dividendDate": "YYYY-MM-DD" | null
+}
+
+Use null for either field you cannot confirm. Only return dates in the next 120 days; if a date is more than 120 days out or unconfirmed, return null.`;
+
+interface ContentBlock {
+  type: string;
+  text?: string;
+}
+
+async function fetchFromClaude(ticker: string): Promise<CalendarResult | null> {
+  try {
+    const resp = await anthropic().messages.create({
+      model: CHEAP_MODEL,
+      max_tokens: 512,
+      system: [{ type: "text", text: CLAUDE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+      messages: [
+        {
+          role: "user",
+          content: `Today is ${new Date().toISOString().slice(0, 10)}. Find the next earnings date and next ex-dividend date for ${ticker}. Return JSON only.`,
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const blocks = (resp.content ?? []) as ContentBlock[];
+    const text = blocks
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
+      .join("\n")
+      .trim();
+    const parsed = parseClaudeJsonRaw(text);
+    const result = parsed ? ClaudeCalendarSchema.safeParse(parsed) : null;
+    if (!result?.success) return null;
+    const earnings = normalizeIsoDate(result.data.earningsDate ?? null);
+    const dividend = normalizeIsoDate(result.data.dividendDate ?? null);
+    if (!earnings && !dividend) return null;
+    return { earnings, dividend, source: "Yahoo" };
+  } catch (e) {
+    console.warn(`[calendar] claude fallback failed for ${ticker}:`, e);
+    return null;
+  }
+}
+
+function normalizeIsoDate(s: string | null | undefined): string | null {
+  if (!s) return null;
+  // Accept "YYYY-MM-DD" or full ISO with time. Strip to date.
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!m) return null;
+  return m[1];
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ symbol: string }> }) {
   try {
     const rl = rateLimit(`calendar:${clientIp(req)}`, 30, 60 * 1000);
@@ -108,7 +187,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ symbol: 
       return NextResponse.json(cached.result);
     }
 
-    const result = await fetchCalendar(ticker);
+    const yahoo = await fetchCalendar(ticker);
+    // Use Claude when Yahoo returned nothing OR when both fields blanked —
+    // a common case for big-cap tickers where Yahoo has the row but the
+    // calendar block is empty.
+    const yahooEmpty = !yahoo || (!yahoo.earnings && !yahoo.dividend);
+    const result = yahooEmpty ? await fetchFromClaude(ticker) : yahoo;
     if (!result) {
       return NextResponse.json(
         { error: `Could not fetch calendar for ${ticker}` },

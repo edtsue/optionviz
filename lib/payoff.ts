@@ -44,6 +44,28 @@ export function totalPnL(trade: Trade, spot: number, valuationDate: Date): numbe
   return opt + underlyingPnL(trade, spot);
 }
 
+// Live P/L vs entry. `spot` is the current underlying price. The dollar P/L
+// uses today's date so option legs are valued via Black-Scholes (intrinsic +
+// remaining time value), then the entry premiums net out. The percent base
+// is the absolute capital at risk: net debit if the trade cost money, total
+// premium collected if it was a credit, or share notional for stock-only.
+// Returns null when the position has zero capital at risk (degenerate).
+export function currentPnL(
+  trade: Trade,
+  spot: number,
+): { dollar: number; percent: number | null } {
+  const dollar = totalPnL(trade, spot, new Date());
+  let basis = 0;
+  for (const l of trade.legs) {
+    basis += l.premium * l.quantity * CONTRACT_MULT;
+  }
+  if (trade.underlying) {
+    basis += Math.abs(trade.underlying.shares) * trade.underlying.costBasis;
+  }
+  const percent = basis > 0 ? (dollar / basis) * 100 : null;
+  return { dollar: +dollar.toFixed(2), percent: percent == null ? null : +percent.toFixed(1) };
+}
+
 export interface PayoffPoint {
   spot: number;
   expiry: number;

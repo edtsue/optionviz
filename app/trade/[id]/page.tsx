@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
-import { fillImpliedVolsForTrade, netGreeks, tradeStats } from "@/lib/payoff";
+import { currentPnL, fillImpliedVolsForTrade, netGreeks, tradeStats } from "@/lib/payoff";
 import { detectStrategy } from "@/lib/strategies";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
 import { notifyTradesChanged } from "@/components/Sidebar";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CloseTradeDialog } from "@/components/CloseTradeDialog";
 import { useRegisterChatContext } from "@/lib/chat-context";
 import type { Trade } from "@/types/trade";
 
@@ -153,6 +154,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     saving: false,
   });
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
   const [marketView, setMarketView] = useState<MarketView>("neutral");
   const [checklistOpen, setChecklistOpen] = useState(false);
 
@@ -203,6 +205,7 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
   const strategy = useMemo(() => detectStrategy(trade), [trade]);
   const greeks = useMemo(() => netGreeks(trade), [trade]);
   const stats = useMemo(() => tradeStats(trade), [trade]);
+  const pnl = useMemo(() => currentPnL(trade, trade.underlyingPrice), [trade]);
 
   const chatLabel = `Trade: ${trade.symbol} ${strategy.label}`;
   const chatData = useMemo(
@@ -243,6 +246,46 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     await tradesClient.remove(tradeId);
     notifyTradesChanged();
     router.push("/");
+  }
+
+  // Close = log a journal row, then remove the live row.
+  async function onClose(input: {
+    exitCredit: number;
+    notes: string | null;
+    entryCredit: number;
+    realizedPnL: number;
+    realizedPnLPct: number | null;
+    capitalAtRisk: number;
+  }) {
+    setCloseOpen(false);
+    try {
+      const res = await fetch("/api/closed-trades", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceTradeId: tradeId,
+          outcome: "closed",
+          trade,
+          entryCredit: input.entryCredit,
+          exitCredit: input.exitCredit,
+          realizedPnL: input.realizedPnL,
+          realizedPnLPct: input.realizedPnLPct,
+          capitalAtRisk: input.capitalAtRisk,
+          notes: input.notes,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `Close failed (HTTP ${res.status})`);
+      }
+      // Only delete the live trade row after the journal row is safely
+      // persisted — otherwise a transient cloud error would lose the trade.
+      await tradesClient.remove(tradeId);
+      notifyTradesChanged();
+      router.push("/journal");
+    } catch (e) {
+      setSaveStatus({ saving: false, error: e instanceof Error ? e.message : "Close failed" });
+    }
   }
 
   async function onSave() {
@@ -306,14 +349,58 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
             <span className="text-3xl font-bold leading-none text-orange-400">
               ${trade.underlyingPrice.toFixed(2)}
             </span>
+            <span
+              className={`rounded-md border px-2 py-1 text-sm font-semibold tabular-nums ${
+                pnl.dollar > 0.5
+                  ? "border-gain/40 bg-gain/10 gain"
+                  : pnl.dollar < -0.5
+                    ? "border-loss/40 bg-loss/10 loss"
+                    : "border-border bg-white/[0.02] muted"
+              }`}
+              title="Open P/L vs entry — option legs marked-to-market today via Black-Scholes plus any underlying shares P/L"
+            >
+              {pnl.dollar >= 0 ? "+$" : "−$"}
+              {Math.abs(pnl.dollar).toFixed(0)}
+              {pnl.percent != null && (
+                <span className="ml-1 text-[11px] opacity-80">
+                  ({pnl.percent >= 0 ? "+" : ""}
+                  {pnl.percent.toFixed(1)}%)
+                </span>
+              )}
+            </span>
             <span className="text-xs muted">· {VIEW_BIAS[marketView]} bias</span>
-            {liveSpot && (
-              <span className="text-[10px] muted">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 align-middle" />{" "}
-                live · {new Date(liveSpot.fetchedAt).toLocaleTimeString()}
-                {liveSpot.source ? ` · ${liveSpot.source}` : ""}
-              </span>
-            )}
+            {liveSpot && (() => {
+              // Use Yahoo's market timestamp (asOf), not the client clock.
+              // On a Saturday the regular session asOf is Friday 4 PM ET;
+              // labeling that "live · now" was misleading. The source string
+              // already encodes regular vs. extended vs. last-close.
+              const asOfDate = new Date(liveSpot.asOf);
+              const ageMs = Date.now() - asOfDate.getTime();
+              const isStale =
+                ageMs > 5 * 60 * 1000 ||
+                /last close|after-hours|pre-market/i.test(liveSpot.source ?? "");
+              const isClosed = /last close/i.test(liveSpot.source ?? "");
+              const dotClass = isClosed
+                ? "bg-zinc-400"
+                : isStale
+                  ? "bg-amber-400"
+                  : "bg-green-500";
+              const verb = isClosed ? "close" : isStale ? "delayed" : "live";
+              const stamp = isClosed
+                ? asOfDate.toLocaleString(undefined, {
+                    weekday: "short",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })
+                : asOfDate.toLocaleTimeString();
+              return (
+                <span className="text-[10px] muted">
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full align-middle ${dotClass}`} />{" "}
+                  {verb} · {stamp}
+                  {liveSpot.source ? ` · ${liveSpot.source}` : ""}
+                </span>
+              );
+            })()}
             {Math.abs(trade.underlyingPrice - savedSpot) >= 0.005 && (
               <span
                 className="rounded-md border border-orange-500/40 px-1.5 py-0.5 text-[10px] text-orange-300"
@@ -408,21 +495,35 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
             {saveStatus.saving ? "Saving…" : saveStatus.saved ? "Saved ✓" : "Save"}
           </button>
           <button
+            onClick={() => setCloseOpen(true)}
+            className="btn-ghost rounded-lg px-3 py-1.5 text-sm"
+            title="Log realized P/L to the journal and remove the live position"
+          >
+            Close
+          </button>
+          <button
             onClick={() => setConfirmDelete(true)}
             className="btn-danger rounded-lg px-3 py-1.5 text-sm"
+            title="Discard without journaling — for parse errors or canceled orders"
           >
-            Delete
+            Discard
           </button>
           {saveStatus.error && (
             <span className="text-[11px] loss" title={saveStatus.error}>
-              save failed
+              {saveStatus.error.toLowerCase().includes("close") ? "close failed" : "save failed"}
             </span>
           )}
+          <CloseTradeDialog
+            open={closeOpen}
+            trade={trade}
+            onCancel={() => setCloseOpen(false)}
+            onConfirm={onClose}
+          />
           <ConfirmDialog
             open={confirmDelete}
-            title="Delete this trade?"
-            body={`${trade.symbol} · ${trade.legs.length} leg${trade.legs.length === 1 ? "" : "s"}. This can't be undone.`}
-            confirmLabel="Delete"
+            title="Discard this trade?"
+            body={`${trade.symbol} · ${trade.legs.length} leg${trade.legs.length === 1 ? "" : "s"}. No journal entry will be logged. Use Close above if this position was actually held.`}
+            confirmLabel="Discard"
             destructive
             onConfirm={() => {
               setConfirmDelete(false);
@@ -432,6 +533,8 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           />
         </div>
       </header>
+
+      <DteBanner trade={trade} theta={greeks.theta} />
 
       <TradeAnalysis
         trade={trade}
@@ -500,6 +603,74 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           <TicketImage path={trade.ticketImagePath} />
         </div>
       )}
+    </div>
+  );
+}
+
+function tradingDaysBetween(a: Date, b: Date): number {
+  // Inclusive count of weekdays between a and b. Doesn't honor US holidays —
+  // close enough for "do I have a roll window" decisions.
+  const start = a < b ? a : b;
+  const end = a < b ? b : a;
+  let n = 0;
+  const d = new Date(start);
+  d.setHours(0, 0, 0, 0);
+  const stop = new Date(end);
+  stop.setHours(0, 0, 0, 0);
+  while (d <= stop) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return n;
+}
+
+function DteBanner({ trade, theta }: { trade: Trade; theta: number }) {
+  if (!trade.legs.length) return null;
+  const now = new Date();
+  // Soonest expiry drives the banner — that leg's theta accelerates first
+  // and forces the next decision (close, roll, or assignment).
+  const earliestMs = Math.min(...trade.legs.map((l) => new Date(l.expiration).getTime()));
+  const earliest = new Date(earliestMs);
+  const dte = Math.max(0, Math.ceil((earliestMs - now.getTime()) / 86_400_000));
+  const tradingDte = tradingDaysBetween(now, earliest);
+
+  // Color/severity bands. Theta acceleration becomes pronounced inside ~30
+  // days and brutal inside ~14.
+  const tone =
+    dte === 0
+      ? "border-loss/40 bg-loss/10 loss"
+      : dte <= 7
+        ? "border-orange-500/50 bg-orange-500/10 text-orange-300"
+        : dte <= 21
+          ? "border-warn/40 bg-warn/10 warn"
+          : "border-border bg-white/[0.02] muted";
+
+  const accel =
+    dte === 0
+      ? "expiring today"
+      : dte <= 7
+        ? "final-week decay"
+        : dte <= 21
+          ? "accelerating"
+          : "low decay";
+
+  // Theta is dollars per day on the position (sign included — short premium
+  // gives positive theta). Show absolute value with a sign tag for clarity.
+  const thetaSign = theta >= 0 ? "+" : "−";
+  const thetaAbs = Math.abs(theta);
+
+  return (
+    <div className={`card card-tight flex flex-wrap items-baseline gap-x-4 gap-y-1 ${tone}`}>
+      <span className="text-base font-semibold">⏱ {dte}d to expiry</span>
+      <span className="text-xs">· {tradingDte} trading day{tradingDte === 1 ? "" : "s"}</span>
+      <span className="text-xs tabular-nums">
+        · θ {thetaSign}${thetaAbs.toFixed(0)}/day
+      </span>
+      <span className="text-xs">· {accel}</span>
+      <span className="ml-auto text-[10px] muted">
+        soonest leg: {earliest.toISOString().slice(0, 10)}
+      </span>
     </div>
   );
 }
