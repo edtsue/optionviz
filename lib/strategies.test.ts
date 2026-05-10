@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { detectStrategy } from "./strategies";
+import { detectStrategy, legMoneyness, tradeMoneyness } from "./strategies";
 import type { Trade } from "@/types/trade";
 
 const expiry = "2026-12-18";
 const expiry2 = "2027-01-15";
 
-function trade(legs: Trade["legs"], underlying?: Trade["underlying"]): Trade {
+function trade(
+  legs: Trade["legs"],
+  underlying?: Trade["underlying"],
+  underlyingPrice = 100,
+): Trade {
   return {
     symbol: "TEST",
-    underlyingPrice: 100,
+    underlyingPrice,
     riskFreeRate: 0.045,
     legs,
     underlying,
@@ -69,5 +73,78 @@ describe("detectStrategy", () => {
       ]),
     );
     expect(r.name).toBe("iron_condor");
+  });
+});
+
+describe("legMoneyness", () => {
+  it("call: spot above strike is ITM, below is OTM", () => {
+    const call = { type: "call" as const, side: "long" as const, strike: 100, expiration: expiry, quantity: 1, premium: 1 };
+    expect(legMoneyness(call, 110)).toBe("ITM");
+    expect(legMoneyness(call, 90)).toBe("OTM");
+  });
+  it("put: spot below strike is ITM, above is OTM", () => {
+    const put = { type: "put" as const, side: "long" as const, strike: 100, expiration: expiry, quantity: 1, premium: 1 };
+    expect(legMoneyness(put, 90)).toBe("ITM");
+    expect(legMoneyness(put, 110)).toBe("OTM");
+  });
+  it("spot within 1.5% of strike is ATM (call or put)", () => {
+    const call = { type: "call" as const, side: "long" as const, strike: 100, expiration: expiry, quantity: 1, premium: 1 };
+    const put = { type: "put" as const, side: "short" as const, strike: 100, expiration: expiry, quantity: 1, premium: 1 };
+    expect(legMoneyness(call, 100)).toBe("ATM");
+    expect(legMoneyness(call, 101.4)).toBe("ATM");
+    expect(legMoneyness(put, 98.6)).toBe("ATM");
+    expect(legMoneyness(call, 101.6)).toBe("ITM");
+  });
+});
+
+describe("tradeMoneyness", () => {
+  it("single long call far OTM", () => {
+    const t = trade(
+      [{ type: "call", side: "long", strike: 120, expiration: expiry, quantity: 1, premium: 1 }],
+      undefined,
+      100,
+    );
+    expect(tradeMoneyness(t)).toBe("OTM");
+  });
+  it("single long call ITM", () => {
+    const t = trade(
+      [{ type: "call", side: "long", strike: 90, expiration: expiry, quantity: 1, premium: 12 }],
+      undefined,
+      100,
+    );
+    expect(tradeMoneyness(t)).toBe("ITM");
+  });
+  it("vertical with one ITM leg rolls up to ITM", () => {
+    const t = trade(
+      [
+        { type: "call", side: "long", strike: 95, expiration: expiry, quantity: 1, premium: 6 },
+        { type: "call", side: "short", strike: 110, expiration: expiry, quantity: 1, premium: 1 },
+      ],
+      undefined,
+      100,
+    );
+    expect(tradeMoneyness(t)).toBe("ITM");
+  });
+  it("strangle with both legs OTM is OTM", () => {
+    const t = trade(
+      [
+        { type: "put", side: "long", strike: 90, expiration: expiry, quantity: 1, premium: 1 },
+        { type: "call", side: "long", strike: 110, expiration: expiry, quantity: 1, premium: 1 },
+      ],
+      undefined,
+      100,
+    );
+    expect(tradeMoneyness(t)).toBe("OTM");
+  });
+  it("nearest strike within ATM band rolls up to ATM", () => {
+    const t = trade(
+      [
+        { type: "call", side: "short", strike: 101, expiration: expiry, quantity: 1, premium: 1 },
+        { type: "call", side: "long", strike: 110, expiration: expiry, quantity: 1, premium: 0.5 },
+      ],
+      undefined,
+      100,
+    );
+    expect(tradeMoneyness(t)).toBe("ATM");
   });
 });

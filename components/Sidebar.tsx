@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
-import { detectStrategy } from "@/lib/strategies";
+import { detectStrategy, tradeMoneyness, type Moneyness } from "@/lib/strategies";
 import { SettingsButton } from "./SettingsPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { DetectedStrategy, Trade } from "@/types/trade";
@@ -51,8 +51,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     };
   }, []);
 
-  const enriched = useMemo<Array<{ trade: Trade; strategy: DetectedStrategy }>>(
-    () => (trades ?? []).map((t) => ({ trade: t, strategy: detectStrategy(t) })),
+  const enriched = useMemo<
+    Array<{ trade: Trade; strategy: DetectedStrategy; moneyness: Moneyness }>
+  >(
+    () =>
+      (trades ?? []).map((t) => ({
+        trade: t,
+        strategy: detectStrategy(t),
+        moneyness: tradeMoneyness(t),
+      })),
     [trades],
   );
 
@@ -136,9 +143,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {trades === null && <div className="px-3 text-xs muted">Loading…</div>}
         {trades?.length === 0 && <div className="px-3 text-xs muted">No trades yet</div>}
         <ul className="flex flex-col gap-0.5">
-          {enriched.map(({ trade: t, strategy: strat }) => {
+          {enriched.map(({ trade: t, strategy: strat, moneyness }) => {
             const active = t.id === activeTradeId;
             const isPortfolio = t.source === "portfolio";
+            const moneynessClass =
+              moneyness === "ITM"
+                ? "text-red-400"
+                : moneyness === "ATM"
+                  ? "text-yellow-300"
+                  : "text-emerald-400";
+            const moneynessTitle =
+              moneyness === "ITM"
+                ? "In the money — at least one leg's strike has been crossed"
+                : moneyness === "ATM"
+                  ? "At the money — at least one strike is within 1.5% of spot"
+                  : "Out of the money — all strikes are clear of spot";
             return (
               <li key={t.id} className="group relative">
                 <Link
@@ -150,7 +169,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 >
                   <div className="flex flex-col">
                     <div className="flex items-center gap-1.5">
-                      <span className={`text-sm font-semibold ${isPortfolio ? "" : "text-amber-300"}`}>
+                      <span
+                        className={`text-sm font-semibold ${moneynessClass}`}
+                        title={moneynessTitle}
+                      >
                         {t.symbol}
                       </span>
                       {isPortfolio ? (
