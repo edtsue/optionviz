@@ -7,14 +7,14 @@ function legSign(side: Leg["side"]): number {
   return side === "long" ? 1 : -1;
 }
 
-export function intrinsic(leg: Leg, spot: number): number {
+function intrinsic(leg: Leg, spot: number): number {
   const v = leg.type === "call" ? Math.max(spot - leg.strike, 0) : Math.max(leg.strike - spot, 0);
   return v;
 }
 
 // P/L for a leg at a given underlying price and date.
 // `valuationDate` falls back to expiration → intrinsic value.
-export function legPnL(
+function legPnL(
   leg: Leg,
   spot: number,
   riskFreeRate: number,
@@ -31,7 +31,7 @@ export function legPnL(
   return sign * (value - leg.premium) * leg.quantity * CONTRACT_MULT;
 }
 
-export function underlyingPnL(trade: Trade, spot: number): number {
+function underlyingPnL(trade: Trade, spot: number): number {
   if (!trade.underlying) return 0;
   return (spot - trade.underlying.costBasis) * trade.underlying.shares;
 }
