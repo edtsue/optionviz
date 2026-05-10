@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
 import { detectStrategy, tradeMoneyness, type Moneyness } from "@/lib/strategies";
+import { usePortfolioShares, externalSharesFor } from "@/lib/use-portfolio-shares";
 import { SettingsButton } from "./SettingsPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { DetectedStrategy, Trade } from "@/types/trade";
@@ -22,6 +23,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Trade | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const portfolioShares = usePortfolioShares();
 
   useEffect(() => {
     let cancelled = false;
@@ -57,10 +59,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     () =>
       (trades ?? []).map((t) => ({
         trade: t,
-        strategy: detectStrategy(t),
+        strategy: detectStrategy(t, {
+          externalShares: externalSharesFor(portfolioShares, t.symbol),
+        }),
         moneyness: tradeMoneyness(t),
       })),
-    [trades],
+    [trades, portfolioShares],
   );
 
   const activeTradeId = pathname?.startsWith("/trade/") && !pathname.endsWith("/new")

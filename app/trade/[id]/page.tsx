@@ -5,6 +5,7 @@ import Link from "next/link";
 import { tradesClient } from "@/lib/trades-client";
 import { currentPnL, fillImpliedVolsForTrade, netGreeks, tradeStats } from "@/lib/payoff";
 import { detectStrategy } from "@/lib/strategies";
+import { usePortfolioShares, externalSharesFor } from "@/lib/use-portfolio-shares";
 import { TradeAnalysis } from "@/components/TradeAnalysis";
 import { notifyTradesChanged } from "@/components/Sidebar";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -202,7 +203,12 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
       localStorage.setItem("optionviz.checklist-drawer", checklistOpen ? "1" : "0");
     } catch {}
   }, [checklistOpen]);
-  const strategy = useMemo(() => detectStrategy(trade), [trade]);
+  const portfolioShares = usePortfolioShares();
+  const externalShares = externalSharesFor(portfolioShares, trade.symbol);
+  const strategy = useMemo(
+    () => detectStrategy(trade, { externalShares }),
+    [trade, externalShares],
+  );
   const greeks = useMemo(() => netGreeks(trade), [trade]);
   const stats = useMemo(() => tradeStats(trade), [trade]);
   const pnl = useMemo(() => currentPnL(trade, trade.underlyingPrice), [trade]);

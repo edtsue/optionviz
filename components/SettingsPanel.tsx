@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSettings, type FontSize, type ThemeMode } from "@/lib/settings";
 
 export function SettingsButton() {
@@ -21,10 +22,23 @@ export function SettingsButton() {
 
 function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [s, set] = useSettings();
-  return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center">
+  // Mount guard for SSR-safe portaling, same as ConfirmDialog.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-end md:items-center md:justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="card relative m-0 w-full md:m-4 md:max-w-md">
+      {/* Solid surface — the .card class is translucent with backdrop-blur
+          which makes it disappear against the dim overlay. */}
+      <div
+        className="relative m-0 w-full rounded-2xl p-4 shadow-2xl md:m-4 md:max-w-md"
+        style={{
+          background: "#1a1f2a",
+          border: "1px solid rgba(255,255,255,0.16)",
+          color: "#e5e7eb",
+        }}
+      >
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-lg font-semibold">Settings</h2>
           <button onClick={onClose} className="rounded-md border border-border px-2 py-1 text-xs">×</button>
@@ -70,7 +84,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           Settings are saved to this browser only.
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

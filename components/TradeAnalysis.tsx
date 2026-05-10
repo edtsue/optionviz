@@ -27,6 +27,7 @@ const TradeChat = dynamic(
 );
 import { TradeInputs } from "@/components/TradeInputs";
 import { computeStopSpot, findShortLeg } from "@/lib/stop-spot";
+import { usePortfolioShares, externalSharesFor } from "@/lib/use-portfolio-shares";
 
 type Strategy = "covered_call" | "cash_secured_put";
 type MarketView = "bull" | "neutral" | "bear";
@@ -75,6 +76,12 @@ export function TradeAnalysis({
   );
   const [strategy, setStrategy] = useState<Strategy>("covered_call");
 
+  // Pull share holdings from the latest portfolio snapshot so detectStrategy
+  // recognizes covered calls when the hedge shares live in the portfolio
+  // rather than being attached to the trade row.
+  const portfolioShares = usePortfolioShares();
+  const externalShares = externalSharesFor(portfolioShares, trade.symbol);
+
   const ready = useMemo(() => {
     if (!trade.legs.length) return false;
     if (!trade.underlyingPrice || trade.underlyingPrice <= 0) return false;
@@ -85,11 +92,11 @@ export function TradeAnalysis({
 
   // Detect strategy + identify the short leg the checklist anchors to.
   const detected = useMemo(() => {
-    const d = detectStrategy(trade);
+    const d = detectStrategy(trade, { externalShares });
     if (d.name === "covered_call") return "covered_call" as const;
     if (d.name === "cash_secured_put") return "cash_secured_put" as const;
     return "other" as const;
-  }, [trade]);
+  }, [trade, externalShares]);
   const shortLeg = useMemo(() => findShortLeg(trade), [trade]);
 
   // Initialize the strategy override from the detected strategy on first
@@ -132,7 +139,7 @@ export function TradeAnalysis({
   const base = useMemo(() => {
     if (!ready) return null;
     const filled = fillImpliedVolsForTrade(trade);
-    const strategy = detectStrategy(filled);
+    const strategy = detectStrategy(filled, { externalShares });
     const stats = tradeStats(filled);
     const kpis = strategyKPIs(filled);
     const lastExpiry = new Date(
@@ -153,7 +160,7 @@ export function TradeAnalysis({
           })()
         : null;
     return { filled, strategy, stats, kpis, fullPayoff, lastExpiry, oneSigmaBand };
-  }, [trade, ready]);
+  }, [trade, ready, externalShares]);
 
   // Slider-dependent: recompute the "mid" curve and per-share greeks at target.
   const data = useMemo(() => {

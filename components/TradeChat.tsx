@@ -5,6 +5,7 @@ import { detectStrategy } from "@/lib/strategies";
 import { perShareGreeks, tradeStats } from "@/lib/payoff";
 import { resizeImage } from "@/lib/image";
 import { stripFormatting } from "@/lib/strip-markdown";
+import { usePortfolioShares, externalSharesFor } from "@/lib/use-portfolio-shares";
 import { ClaudeMark } from "./ClaudeMark";
 
 interface ImageBlock {
@@ -46,6 +47,8 @@ function TradeChatImpl({ trade }: { trade: Trade }) {
   const [staged, setStaged] = useState<StagedImage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const portfolioShares = usePortfolioShares();
+  const externalShares = externalSharesFor(portfolioShares, trade.symbol);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -127,7 +130,7 @@ function TradeChatImpl({ trade }: { trade: Trade }) {
     setBusy(true);
     setError(null);
     try {
-      const ctx = buildContext(trade);
+      const ctx = buildContext(trade, externalShares);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -330,8 +333,8 @@ function MessageBubble({ msg }: { msg: Msg }) {
   );
 }
 
-function buildContext(trade: Trade) {
-  const strategy = detectStrategy(trade);
+function buildContext(trade: Trade, externalShares = 0) {
+  const strategy = detectStrategy(trade, { externalShares });
   let stats, greeks;
   try {
     stats = tradeStats(trade);

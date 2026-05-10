@@ -36,6 +36,22 @@ describe("detectStrategy", () => {
     expect(detectStrategy(trade(legs, { shares: 100, costBasis: 95 })).name).toBe("covered_call");
   });
 
+  it("short call covered by external (portfolio) shares is a covered call", () => {
+    const legs: Trade["legs"] = [
+      { type: "call", side: "short", strike: 105, expiration: expiry, quantity: 1, premium: 1 },
+    ];
+    // No attached underlying, but 100 shares held in the portfolio.
+    expect(detectStrategy(trade(legs), { externalShares: 100 }).name).toBe("covered_call");
+    // 50 attached + 50 portfolio still doesn't cover.
+    expect(
+      detectStrategy(trade(legs, { shares: 50, costBasis: 95 }), { externalShares: 49 }).name,
+    ).toBe("short_call");
+    // 50 attached + 50 portfolio = 100 → covered.
+    expect(
+      detectStrategy(trade(legs, { shares: 50, costBasis: 95 }), { externalShares: 50 }).name,
+    ).toBe("covered_call");
+  });
+
   it("cash-secured put", () => {
     const r = detectStrategy(
       trade([{ type: "put", side: "short", strike: 95, expiration: expiry, quantity: 1, premium: 2 }]),

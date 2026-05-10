@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { tradesClient } from "@/lib/trades-client";
 import { detectStrategy } from "@/lib/strategies";
 import { fillImpliedVolsForTrade, netGreeks } from "@/lib/payoff";
+import { usePortfolioShares, externalSharesFor } from "@/lib/use-portfolio-shares";
 import type { Trade } from "@/types/trade";
 
 export default function HomePage() {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const portfolioShares = usePortfolioShares();
 
   useEffect(() => {
     tradesClient
@@ -81,7 +83,9 @@ export default function HomePage() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {trades?.map((t) => {
-          const strat = detectStrategy(t);
+          const strat = detectStrategy(t, {
+            externalShares: externalSharesFor(portfolioShares, t.symbol),
+          });
           return (
             <Link
               key={t.id}

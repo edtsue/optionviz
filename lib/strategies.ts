@@ -28,9 +28,23 @@ export function tradeMoneyness(trade: Trade): Moneyness {
   return sawAtm ? "ATM" : "OTM";
 }
 
-export function detectStrategy(trade: Trade): DetectedStrategy {
+export interface DetectStrategyContext {
+  /** Net shares of `trade.symbol` the user holds elsewhere (typically their
+   *  uploaded broker portfolio). Used to recognize covered calls when the
+   *  hedge lives in the portfolio rather than being attached to the trade's
+   *  own `underlying` field. Added to `trade.underlying.shares` before the
+   *  ≥100 coverage check. */
+  externalShares?: number;
+}
+
+export function detectStrategy(
+  trade: Trade,
+  context?: DetectStrategyContext,
+): DetectedStrategy {
   const legs = trade.legs;
-  const hasShares = !!trade.underlying && trade.underlying.shares >= 100;
+  const tradeShares = trade.underlying?.shares ?? 0;
+  const totalShares = tradeShares + (context?.externalShares ?? 0);
+  const hasShares = totalShares >= 100;
 
   if (legs.length === 1) {
     const l = legs[0];
