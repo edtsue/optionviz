@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Trade } from "@/types/trade";
 
 interface Props {
@@ -45,6 +46,8 @@ function capitalAtRisk(trade: Trade): number {
 export function CloseTradeDialog({ open, trade, onCancel, onConfirm }: Props) {
   const [exitInput, setExitInput] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (open) {
@@ -75,12 +78,12 @@ export function CloseTradeDialog({ open, trade, onCancel, onConfirm }: Props) {
   const realizedPct =
     exitValid && risk > 0 ? +((realized / risk) * 100).toFixed(1) : null;
 
-  if (!open) return null;
-  return (
+  if (!open || !mounted) return null;
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
       <div
@@ -88,6 +91,7 @@ export function CloseTradeDialog({ open, trade, onCancel, onConfirm }: Props) {
         style={{
           background: "#1a1f2a",
           border: "1px solid rgba(255,255,255,0.16)",
+          color: "#e5e7eb",
         }}
       >
         <div>
@@ -177,6 +181,7 @@ export function CloseTradeDialog({ open, trade, onCancel, onConfirm }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
