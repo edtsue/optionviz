@@ -390,13 +390,19 @@ function fmtSignedMoney(v: number): string {
 }
 
 function fmtExpiry(iso: string): { label: string; dte: number } {
-  const d = new Date(iso);
-  const label = d.toLocaleDateString(undefined, {
+  // Parse YYYY-MM-DD as a *local* date — `new Date("2025-07-19")` is UTC
+  // midnight, which renders as the prior day in any timezone west of UTC.
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
+  const label = date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "2-digit",
   });
-  const dte = Math.max(0, Math.round((d.getTime() - Date.now()) / 86_400_000));
+  // DTE: whole days from local-midnight-today to local-midnight-expiry.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dte = Math.max(0, Math.round((date.getTime() - today.getTime()) / 86_400_000));
   return { label, dte };
 }
 
