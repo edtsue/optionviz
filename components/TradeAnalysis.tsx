@@ -5,7 +5,6 @@ import { detectStrategy } from "@/lib/strategies";
 import {
   buildPayoff,
   fillImpliedVolsForTrade,
-  netGreeks,
   perShareGreeks,
   totalPnL,
   tradeStats,
@@ -224,7 +223,7 @@ export function TradeAnalysis({
         stopMultiplier={stopMultiplier}
         stopSpot={shortLeg ? stopSpot : null}
         stopLoss={shortLeg ? stopLoss : null}
-        netDelta={netGreeks(data.filled).delta}
+        perShareDelta={perShareGreeks(data.filled).delta}
       />
       {/* Secondary chips — Take / Breakeven. Only relevant when the user has
           picked a take-profit row or when the chart has breakevens to call out. */}
@@ -414,16 +413,17 @@ function TradeHud({
   stopMultiplier,
   stopSpot,
   stopLoss,
-  netDelta,
+  perShareDelta,
 }: {
   trade: Trade;
   anchorLeg: { type: "call" | "put"; strike: number; expiration: string } | null;
   stopMultiplier: number;
   stopSpot: number | null;
   stopLoss: number | null | undefined;
-  /** Position-level delta, shares-equivalent (qty × 100 × side, plus any
-      underlying shares). +47 ≈ behaves like long 47 shares. */
-  netDelta: number | null;
+  /** Per-share delta — broker-standard reading (e.g. 0.45 for a 45-delta
+      long call, −0.30 for a short put). Sums across legs with side sign,
+      no quantity multiplier. */
+  perShareDelta: number | null;
 }) {
   const premium = netPremium(trade);
   const strikeStr = anchorLeg
@@ -432,17 +432,17 @@ function TradeHud({
   const expiry = anchorLeg ? fmtExpiry(anchorLeg.expiration) : null;
   const stopLabel = `Stop (${stopMultiplier.toFixed(1)}×)`;
   const deltaTone =
-    netDelta == null
+    perShareDelta == null
       ? undefined
-      : netDelta > 1
+      : perShareDelta > 0.05
         ? "text-emerald-400"
-        : netDelta < -1
+        : perShareDelta < -0.05
           ? "text-rose-400"
           : "text-amber-400";
   const deltaStr =
-    netDelta == null
+    perShareDelta == null
       ? "—"
-      : `${netDelta >= 0 ? "+" : "−"}${Math.abs(netDelta).toFixed(0)}Δ`;
+      : `${perShareDelta >= 0 ? "+" : "−"}${Math.abs(perShareDelta).toFixed(2)}`;
 
   return (
     <div className="card card-tight">
@@ -480,11 +480,11 @@ function TradeHud({
           tone="text-rose-400"
         />
         <HudCell
-          label="Net delta"
+          label="Delta"
           value={deltaStr}
-          sub="shares-equiv"
+          sub="per share"
           tone={deltaTone}
-          empty={netDelta == null}
+          empty={perShareDelta == null}
         />
       </div>
     </div>
