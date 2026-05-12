@@ -11,9 +11,38 @@ import type { DetectedStrategy, Trade } from "@/types/trade";
 
 const TRADES_CHANGED_EVENT = "optionviz:trades-changed";
 
+// Throttle the auto-resync to once per this many ms across page navs / tab
+// reopens. The sync hits Yahoo for every unique symbol so we don't want to
+// fire on every sidebar mount, but we do want it cheap enough that a
+// returning user sees fresh broker truth within minutes.
+const RESYNC_TTL_MS = 5 * 60 * 1000;
+const RESYNC_KEY = "optionviz.last-portfolio-resync";
+
 export function notifyTradesChanged() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(TRADES_CHANGED_EVENT));
+  }
+}
+
+// Resync the trades list against the latest stored portfolio. Fire-and-forget;
+// errors are swallowed because this is a background freshness pass — if it
+// fails the user still has the previously-synced rows. Manual / WIP trades
+// are not touched by syncPortfolioTrades regardless.
+async function maybeResyncFromPortfolio(): Promise<void> {
+  try {
+    const raw = localStorage.getItem(RESYNC_KEY);
+    const last = raw ? parseInt(raw, 10) : 0;
+    if (Number.isFinite(last) && Date.now() - last < RESYNC_TTL_MS) return;
+    localStorage.setItem(RESYNC_KEY, String(Date.now()));
+    const res = await fetch("/api/portfolio/resync", { method: "POST" });
+    if (!res.ok) return;
+    const j = await res.json().catch(() => null);
+    // Only notify when the sync actually changed something — keeps the
+    // /api/trades refetch off the no-op path.
+    const s = j?.sync as { created?: number; updated?: number; deleted?: number } | null;
+    if (s && (s.created || s.updated || s.deleted)) notifyTradesChanged();
+  } catch {
+    // background sync — never bubbles to the user
   }
 }
 
@@ -45,6 +74,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       }, 200);
     }
     load();
+    // Background pass: if the last portfolio snapshot is newer than our last
+    // resync (or none recorded), kick off a server-side resync. Throttled by
+    // RESYNC_TTL_MS so it doesn't fire on every page nav.
+    maybeResyncFromPortfolio();
     window.addEventListener(TRADES_CHANGED_EVENT, scheduleLoad);
     return () => {
       cancelled = true;
