@@ -7,8 +7,13 @@ interface Props {
 }
 
 function dteDays(iso: string): number {
-  const ms = new Date(iso).getTime() - Date.now();
-  return Math.max(0, Math.ceil(ms / 86_400_000));
+  // Parse YYYY-MM-DD as a *local* date — `new Date("2025-07-19")` would land
+  // on UTC midnight and skew DTE in western timezones.
+  const [y, m, d] = iso.split("-").map(Number);
+  const expiry = new Date(y, (m ?? 1) - 1, d ?? 1);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.ceil((expiry.getTime() - today.getTime()) / 86_400_000));
 }
 
 function actionLabel(leg: Leg): string {
