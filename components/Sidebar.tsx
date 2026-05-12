@@ -41,8 +41,10 @@ async function resyncFromPortfolio(force = false): Promise<void> {
       const j = await res.json().catch(() => null);
       // Only notify when the sync actually changed something — keeps the
       // /api/trades refetch off the no-op path.
-      const s = j?.sync as { created?: number; updated?: number; deleted?: number } | null;
-      if (s && (s.created || s.updated || s.deleted)) notifyTradesChanged();
+      const s = j?.sync as
+        | { created?: number; updated?: number; deleted?: number; promoted?: number }
+        | null;
+      if (s && (s.created || s.updated || s.deleted || s.promoted)) notifyTradesChanged();
     } catch {
       // background sync — never bubbles to the user
     } finally {
