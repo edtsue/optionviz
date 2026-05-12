@@ -3,6 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { detectStrategy } from "@/lib/strategies";
 import type { DetectedStrategy, Trade } from "@/types/trade";
 
+interface JournalAnalysis {
+  headline?: string;
+  patterns?: Array<{ title: string; evidence: string; impact: "high" | "medium" | "low" }>;
+  tips?: Array<{ action: string; why: string }>;
+  blindSpots?: string[];
+}
+
 interface ClosedTrade {
   id: string;
   sourceTradeId: string | null;
@@ -120,6 +127,59 @@ export default function JournalPage() {
   }, [items, symbolQuery, outcomeFilter, winLossFilter, datePreset, notesQuery]);
 
   const stats = useMemo(() => computeStats(filtered), [filtered]);
+
+  // Claude pattern analysis. Runs on demand; result is cached against the
+  // identity of the current filter slice so flipping filters doesn't re-cost
+  // a Claude call until the user explicitly hits the button again.
+  const [analysis, setAnalysis] = useState<JournalAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
+  async function runAnalysis() {
+    if (analyzing || filtered.length === 0) return;
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    try {
+      const entries = filtered.map((it) => ({
+        symbol: it.symbol,
+        outcome: it.outcome,
+        closedAt: it.closedAt,
+        entryCredit: it.entryCredit,
+        exitCredit: it.exitCredit,
+        realizedPnL: it.realizedPnL,
+        realizedPnLPct: it.realizedPnLPct,
+        capitalAtRisk: it.capitalAtRisk,
+        notes: it.notes,
+        strategy: detectStrategy(it.tradeSnapshot).label,
+        legs: it.tradeSnapshot.legs.map((l) => ({
+          type: l.type,
+          side: l.side,
+          strike: l.strike,
+          expiration: l.expiration,
+          quantity: l.quantity,
+          premium: l.premium,
+        })),
+      }));
+      const scopeBits: string[] = [];
+      if (symbolQuery) scopeBits.push(symbolQuery.toUpperCase());
+      if (outcomeFilter !== "all") scopeBits.push(outcomeFilter);
+      if (winLossFilter !== "all") scopeBits.push(winLossFilter);
+      if (datePreset !== "all") scopeBits.push(datePreset);
+      const scopeLabel = scopeBits.length ? scopeBits.join(" · ") : null;
+      const res = await fetch("/api/journal/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries, scopeLabel }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error ?? `HTTP ${res.status}`);
+      setAnalysis(j.analysis as JournalAnalysis);
+    } catch (e) {
+      setAnalyzeError(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   // Per-strategy breakdown built off the filtered list. detectStrategy() is
   // pure and cheap to run per row. Sort by total realized so the top earner
@@ -270,6 +330,16 @@ export default function JournalPage() {
             <Stat label="Avg loss" value={fmtSigned(stats.avgLoss)} tone="loss" />
           </div>
         </div>
+      )}
+
+      {stats && stats.count >= 3 && (
+        <AnalysisPanel
+          analysis={analysis}
+          loading={analyzing}
+          error={analyzeError}
+          onRun={runAnalysis}
+          entryCount={filtered.length}
+        />
       )}
 
       {items === null && !error && <div className="text-sm muted">Loading…</div>}
@@ -468,6 +538,103 @@ function EntryCard({
       </div>
       {it.notes && (
         <p className="mt-2 whitespace-pre-wrap text-sm text-text/90">{it.notes}</p>
+      )}
+    </div>
+  );
+}
+
+function AnalysisPanel({
+  analysis,
+  loading,
+  error,
+  onRun,
+  entryCount,
+}: {
+  analysis: JournalAnalysis | null;
+  loading: boolean;
+  error: string | null;
+  onRun: () => void;
+  entryCount: number;
+}) {
+  return (
+    <div className="card card-tight space-y-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold">Pattern analysis</div>
+          <div className="text-[11px] muted">
+            Claude reads the {entryCount} entr{entryCount === 1 ? "y" : "ies"} above and surfaces
+            what's recurring + what to change next time.
+          </div>
+        </div>
+        <button
+          onClick={onRun}
+          disabled={loading || entryCount === 0}
+          className="btn-primary rounded-md px-3 py-1.5 text-xs disabled:opacity-50"
+        >
+          {loading ? "Analyzing…" : analysis ? "Re-analyze" : "Analyze patterns"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-loss/40 bg-loss/10 px-3 py-2 text-xs loss">
+          {error}
+        </div>
+      )}
+
+      {analysis && !loading && (
+        <div className="space-y-3 border-t border-border pt-3">
+          {analysis.headline && (
+            <p className="text-sm">{analysis.headline}</p>
+          )}
+
+          {analysis.patterns && analysis.patterns.length > 0 && (
+            <div>
+              <div className="label mb-1">Patterns</div>
+              <ul className="space-y-1.5">
+                {analysis.patterns.map((p, i) => (
+                  <li key={i} className="text-xs">
+                    <span className={`mr-2 inline-block rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wider ${
+                      p.impact === "high"
+                        ? "border border-loss/40 bg-loss/10 loss"
+                        : p.impact === "medium"
+                          ? "border border-amber-400/40 bg-amber-400/10 text-amber-300"
+                          : "border border-border muted"
+                    }`}>
+                      {p.impact}
+                    </span>
+                    <span className="font-semibold">{p.title}.</span>{" "}
+                    <span className="muted">{p.evidence}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {analysis.tips && analysis.tips.length > 0 && (
+            <div>
+              <div className="label mb-1">Tips for next time</div>
+              <ul className="space-y-1.5">
+                {analysis.tips.map((t, i) => (
+                  <li key={i} className="text-xs">
+                    <span className="font-semibold gain">→ {t.action}</span>{" "}
+                    <span className="muted">— {t.why}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {analysis.blindSpots && analysis.blindSpots.length > 0 && (
+            <div>
+              <div className="label mb-1">What the data can't tell</div>
+              <ul className="space-y-1 text-[11px] muted">
+                {analysis.blindSpots.map((b, i) => (
+                  <li key={i}>· {b}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
