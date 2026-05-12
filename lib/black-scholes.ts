@@ -3,11 +3,11 @@
 
 const SQRT_2PI = Math.sqrt(2 * Math.PI);
 
-function pdf(x: number): number {
+export function pdf(x: number): number {
   return Math.exp(-0.5 * x * x) / SQRT_2PI;
 }
 
-function cdf(x: number): number {
+export function cdf(x: number): number {
   // Abramowitz & Stegun 7.1.26 approximation
   const a1 = 0.254829592;
   const a2 = -0.284496736;

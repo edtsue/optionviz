@@ -13,6 +13,8 @@ import {
 import { strategyKPIs } from "@/lib/strategy-kpis";
 import { yearsBetween } from "@/lib/black-scholes";
 import { PayoffChart } from "@/components/PayoffChart";
+import { DistributionChart } from "@/components/DistributionChart";
+import { buildDistribution, pProfit } from "@/lib/distribution";
 import { TimeSlider } from "@/components/TimeSlider";
 import { Inspector } from "@/components/Inspector";
 import { ResizableSplit } from "@/components/ResizableSplit";
@@ -54,6 +56,10 @@ export function TradeAnalysis({
 }) {
   const [dayProgress, setDayProgress] = useState(0);
   const [stopMultiplier, setStopMultiplier] = useState(2.0);
+  // Payoff (P/L curve) vs Distribution (terminal-price likelihood) view.
+  // Persisted across the trade page in component state only — toggle is
+  // visible in the chart's panel header.
+  const [chartView, setChartView] = useState<"payoff" | "distribution">("payoff");
   const [profitTargetSpot, setProfitTargetSpot] = useState<number | null>(null);
   // Deferred copy used for chart rendering: clicking a profit row updates the
   // table-row highlight immediately while the chart marker re-renders at lower
@@ -200,19 +206,48 @@ export function TradeAnalysis({
       )
     : 30;
 
+  // Distribution: lognormal density over the same spot grid as the payoff,
+  // plus P(profit) integrated over the loss-zero crossing of the expiry P/L.
+  // Computed inline (not memo'd) because it sits after the early-return; the
+  // math is light enough (~61 lognormal samples + a trapezoid pass) to do
+  // every render while the distribution view is active.
+  const distribution =
+    chartView === "distribution"
+      ? buildDistribution(
+          data.filled,
+          data.fullPayoff.map((p) => p.spot),
+        )
+      : null;
+  const pop = chartView === "distribution" ? pProfit(data.filled, data.fullPayoff) : 0;
+
   const main = (
     <div className="flex flex-col gap-3">
-      <PayoffChart
-        data={data.customSeries}
-        underlying={data.filled.underlyingPrice}
-        breakevens={data.stats.breakevens}
-        midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
-        oneSigmaBand={data.oneSigmaBand}
-        stopSpot={shortLeg ? stopSpot : null}
-        stopLoss={shortLeg ? stopLoss : null}
-        profitSpot={deferredProfitSpot}
-        profitGain={profitGain}
-      />
+      {chartView === "payoff" ? (
+        <PayoffChart
+          data={data.customSeries}
+          underlying={data.filled.underlyingPrice}
+          breakevens={data.stats.breakevens}
+          midLabel={dayProgressLabel(dayProgress, data.dteAtTarget)}
+          oneSigmaBand={data.oneSigmaBand}
+          stopSpot={shortLeg ? stopSpot : null}
+          stopLoss={shortLeg ? stopLoss : null}
+          profitSpot={deferredProfitSpot}
+          profitGain={profitGain}
+        />
+      ) : (
+        distribution && (
+          <DistributionChart
+            payoff={data.fullPayoff}
+            distribution={distribution}
+            underlying={data.filled.underlyingPrice}
+            breakevens={data.stats.breakevens}
+            stopSpot={shortLeg ? stopSpot : null}
+            profitSpot={deferredProfitSpot}
+            pProfit={pop}
+          />
+        )
+      )}
+      <ChartViewToggle value={chartView} onChange={setChartView} />
 
       {/* HUD — the six numbers always visible: symbol/strike/expiry on the
           contract side, premium/stop-spot/loss-at-stop on the risk side.
@@ -359,6 +394,34 @@ export function TradeAnalysis({
         {checklistSections}
       </ChecklistDrawer>
     </>
+  );
+}
+
+function ChartViewToggle({
+  value,
+  onChange,
+}: {
+  value: "payoff" | "distribution";
+  onChange: (v: "payoff" | "distribution") => void;
+}) {
+  return (
+    <div className="inline-flex w-fit rounded-md border border-border bg-white/[0.02] p-0.5 self-end">
+      {(["payoff", "distribution"] as const).map((v) => {
+        const active = v === value;
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            className={`rounded px-3 py-1 text-xs capitalize transition ${
+              active ? "bg-accent/15 text-accent" : "muted hover:text-text"
+            }`}
+          >
+            {v === "payoff" ? "Payoff" : "Distribution"}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
