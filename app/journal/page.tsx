@@ -563,7 +563,7 @@ function AnalysisPanel({
           <div className="text-sm font-semibold">Pattern analysis</div>
           <div className="text-[11px] muted">
             Claude reads the {entryCount} entr{entryCount === 1 ? "y" : "ies"} above and surfaces
-            what's recurring + what to change next time.
+            what&rsquo;s recurring + what to change next time.
           </div>
         </div>
         <button
@@ -626,7 +626,7 @@ function AnalysisPanel({
 
           {analysis.blindSpots && analysis.blindSpots.length > 0 && (
             <div>
-              <div className="label mb-1">What the data can't tell</div>
+              <div className="label mb-1">What the data can&rsquo;t tell</div>
               <ul className="space-y-1 text-[11px] muted">
                 {analysis.blindSpots.map((b, i) => (
                   <li key={i}>· {b}</li>
