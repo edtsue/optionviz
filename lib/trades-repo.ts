@@ -165,18 +165,21 @@ export async function updateUnderlyingPrice(
  */
 export async function updateTrade(id: string, trade: Trade): Promise<Trade | null> {
   const sb = supabaseAdmin();
-  const { error: e1 } = await sb
-    .from("trades")
-    .update({
-      symbol: trade.symbol,
-      underlying_price: trade.underlyingPrice,
-      risk_free_rate: trade.riskFreeRate,
-      underlying_shares: trade.underlying?.shares ?? null,
-      underlying_cost_basis: trade.underlying?.costBasis ?? null,
-      notes: trade.notes ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+  // Only write `source` when the caller passed one. The API route for
+  // user-edits (PUT /api/trades/:id) strips it via TradePayloadSchema, so
+  // a missing `source` means "don't touch" — without this guard a user
+  // saving a portfolio trade would silently demote it back to manual.
+  const patch: Record<string, unknown> = {
+    symbol: trade.symbol,
+    underlying_price: trade.underlyingPrice,
+    risk_free_rate: trade.riskFreeRate,
+    underlying_shares: trade.underlying?.shares ?? null,
+    underlying_cost_basis: trade.underlying?.costBasis ?? null,
+    notes: trade.notes ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (trade.source) patch.source = trade.source;
+  const { error: e1 } = await sb.from("trades").update(patch).eq("id", id);
   if (e1) {
     console.error("trades.update failed:", e1);
     throw pgErr(e1, "Update trade failed");

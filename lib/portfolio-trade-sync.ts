@@ -71,6 +71,9 @@ interface SyncResult {
   created: number;
   updated: number;
   deleted: number;
+  /** Manual / WIP trades flipped to source='portfolio' because the broker
+      now actually holds the matching leg. */
+  promoted: number;
   skipped: number;
 }
 
@@ -166,21 +169,24 @@ export async function syncPortfolioTrades(
     source: "portfolio",
   }));
 
-  // Reconcile against existing portfolio-sourced trades. Manual ('WIP')
-  // trades stay completely untouched — never updated, never deleted, never
-  // duplicated. Manual trades that share an identity (same symbol +
-  // expiration + type + side + strike) with a portfolio position are
-  // treated as "already tracked" — we skip creating the portfolio twin so
-  // the user doesn't see two rows for the same position. To "promote" a
-  // WIP into a live tracked trade, the user deletes the WIP and the next
-  // upload creates the portfolio version.
+  // Reconcile against existing trades.
+  //  - Portfolio-sourced existing trades: update / delete to mirror the
+  //    upload exactly.
+  //  - Manual ('WIP') trades that match an incoming portfolio leg get
+  //    *promoted* in-place: source flipped to 'portfolio' and broker
+  //    fields (premium / IV / spot) overwritten. The trade id, checklist
+  //    state, and notes survive. Rationale: if it's in the broker, the
+  //    sidebar should call it live — the WIP badge means "not yet in the
+  //    broker," and a match disproves that.
+  //  - Manual trades that *don't* match any portfolio leg stay manual and
+  //    untouched.
   const allExisting = await listTrades();
   const portfolioExisting = allExisting.filter((t) => t.source === "portfolio");
-  const manualKeys = new Set<string>();
+  const manualByKey = new Map<string, Trade>();
   for (const t of allExisting) {
     if (t.source !== "manual") continue;
     const k = tradeKey(t);
-    if (k) manualKeys.add(k);
+    if (k) manualByKey.set(k, t);
   }
 
   const existingByKey = new Map<string, Trade>();
@@ -197,6 +203,7 @@ export async function syncPortfolioTrades(
   let created = 0;
   let updated = 0;
   let deleted = 0;
+  let promoted = 0;
 
   // Delete: in portfolio-sourced existing but no longer in the upload
   // (closed positions). Manual trades are not in this list, so they are
@@ -213,12 +220,20 @@ export async function syncPortfolioTrades(
     }
   }
 
-  // Update or create.
+  // Promote, update, or create.
   for (const t of targets) {
     const k = tradeKey(t)!;
-    if (manualKeys.has(k)) {
-      // A manual WIP already covers this leg — skip to avoid duplicates.
-      skipped++;
+    const manualPrior = manualByKey.get(k);
+    if (manualPrior?.id) {
+      // Promotion: the broker now holds a leg that previously existed only
+      // as an aspirational WIP. Flip source to 'portfolio' and refresh the
+      // leg/spot from the upload. Trade id + notes + checklist stay.
+      try {
+        await updateTrade(manualPrior.id, { ...t, id: manualPrior.id });
+        promoted++;
+      } catch (err) {
+        console.warn("[sync] promote failed for", manualPrior.id, err);
+      }
       continue;
     }
     const prior = existingByKey.get(k);
@@ -239,5 +254,5 @@ export async function syncPortfolioTrades(
     }
   }
 
-  return { created, updated, deleted, skipped };
+  return { created, updated, deleted, promoted, skipped };
 }
