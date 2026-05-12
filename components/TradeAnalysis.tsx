@@ -214,13 +214,19 @@ export function TradeAnalysis({
         profitGain={profitGain}
       />
 
-      {/* Key-numbers strip — auto-updates as the chart markers change so the
-          user can read Spot / Stop / Take / Breakeven at a glance without
-          scrubbing the chart. */}
-      <KeyNumbersStrip
-        spot={data.filled.underlyingPrice}
+      {/* HUD — the six numbers always visible: symbol/strike/expiry on the
+          contract side, premium/stop-spot/loss-at-stop on the risk side.
+          Anchored to the short leg (same as the stop logic). */}
+      <TradeHud
+        trade={data.filled}
+        anchorLeg={shortLeg ?? data.filled.legs[0] ?? null}
+        stopMultiplier={stopMultiplier}
         stopSpot={shortLeg ? stopSpot : null}
         stopLoss={shortLeg ? stopLoss : null}
+      />
+      {/* Secondary chips — Take / Breakeven. Only relevant when the user has
+          picked a take-profit row or when the chart has breakevens to call out. */}
+      <SecondaryChips
         profitSpot={deferredProfitSpot}
         profitGain={profitGain}
         breakevens={data.stats.breakevens}
@@ -362,81 +368,149 @@ function dayProgressLabel(progress: number, dteAtTarget: number): string {
   return `${dteAtTarget.toFixed(0)}d to expiry`;
 }
 
-function KeyNumbersStrip({
-  spot,
+const CONTRACT_MULT = 100;
+
+function netPremium(trade: Trade): number {
+  return trade.legs.reduce(
+    (acc, l) => acc + (l.side === "short" ? 1 : -1) * l.premium * l.quantity * CONTRACT_MULT,
+    0,
+  );
+}
+
+function fmtMoney(v: number, decimals = 2): string {
+  return `$${v.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+}
+
+function fmtSignedMoney(v: number): string {
+  const sign = v >= 0 ? "+" : "−";
+  return `${sign}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function fmtExpiry(iso: string): { label: string; dte: number } {
+  const d = new Date(iso);
+  const label = d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+  });
+  const dte = Math.max(0, Math.round((d.getTime() - Date.now()) / 86_400_000));
+  return { label, dte };
+}
+
+function TradeHud({
+  trade,
+  anchorLeg,
+  stopMultiplier,
   stopSpot,
   stopLoss,
-  profitSpot,
-  profitGain,
-  breakevens,
 }: {
-  spot: number;
+  trade: Trade;
+  anchorLeg: { type: "call" | "put"; strike: number; expiration: string } | null;
+  stopMultiplier: number;
   stopSpot: number | null;
   stopLoss: number | null | undefined;
-  profitSpot: number | null;
-  profitGain: number | null;
-  breakevens: number[];
 }) {
-  const fmt = (v: number) => `$${v.toFixed(2)}`;
-  const fmtSigned = (v: number) =>
-    `${v >= 0 ? "+" : "−"}$${Math.abs(v).toLocaleString(undefined, {
-      maximumFractionDigits: 0,
-    })}`;
+  const premium = netPremium(trade);
+  const strikeStr = anchorLeg
+    ? `$${anchorLeg.strike} ${anchorLeg.type === "call" ? "C" : "P"}`
+    : "—";
+  const expiry = anchorLeg ? fmtExpiry(anchorLeg.expiration) : null;
+  const stopLabel = `Stop (${stopMultiplier.toFixed(1)}×)`;
+
   return (
     <div className="card card-tight">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 data-grid">
-        <Cell label="Take" tone="text-emerald-400" empty={profitSpot == null}>
-          {profitSpot != null ? (
-            <>
-              {fmt(profitSpot)}
-              {profitGain != null && (
-                <span className="ml-1 text-[10px] muted">{fmtSigned(profitGain)}</span>
-              )}
-            </>
-          ) : (
-            "—"
-          )}
-        </Cell>
-        <Cell label="Spot" tone="text-accent">
-          {fmt(spot)}
-        </Cell>
-        <Cell label="Stop" tone="text-rose-400" empty={stopSpot == null}>
-          {stopSpot != null ? (
-            <>
-              {fmt(stopSpot)}
-              {stopLoss != null && (
-                <span className="ml-1 text-[10px] muted">{fmtSigned(stopLoss)}</span>
-              )}
-            </>
-          ) : (
-            "—"
-          )}
-        </Cell>
-        <Cell label="Breakeven" tone="text-amber-400" empty={breakevens.length === 0}>
-          {breakevens.length === 0
-            ? "—"
-            : breakevens.map((b) => fmt(b)).join(" · ")}
-        </Cell>
+      <div className="grid grid-cols-3 gap-x-4 gap-y-3 sm:grid-cols-6 data-grid">
+        {/* — Contract group — */}
+        <HudCell
+          label="Underlying"
+          value={trade.symbol}
+          sub={`spot ${fmtMoney(trade.underlyingPrice)}`}
+        />
+        <HudCell label="Strike" value={strikeStr} empty={!anchorLeg} />
+        <HudCell
+          label="Expiration"
+          value={expiry?.label ?? "—"}
+          sub={expiry ? `${expiry.dte}d` : undefined}
+          empty={!expiry}
+        />
+
+        {/* — Risk group — */}
+        <HudCell
+          label={premium >= 0 ? "Premium (credit)" : "Premium (debit)"}
+          value={fmtSignedMoney(premium)}
+          tone={premium >= 0 ? "text-emerald-400" : "text-rose-400"}
+        />
+        <HudCell
+          label={stopLabel}
+          value={stopSpot != null ? fmtMoney(stopSpot) : "—"}
+          empty={stopSpot == null}
+          tone="text-rose-400"
+        />
+        <HudCell
+          label="Loss @ stop"
+          value={stopLoss != null ? fmtSignedMoney(stopLoss) : "—"}
+          empty={stopLoss == null}
+          tone="text-rose-400"
+        />
       </div>
     </div>
   );
 }
 
-function Cell({
+function HudCell({
   label,
+  value,
+  sub,
   tone,
   empty,
-  children,
 }: {
   label: string;
+  value: string;
+  sub?: string;
   tone?: string;
   empty?: boolean;
-  children: React.ReactNode;
 }) {
   return (
     <div className="flex min-w-0 flex-col">
       <span className="text-[10px] muted uppercase tracking-wider">{label}</span>
-      <span className={`kpi-sm truncate ${empty ? "muted" : tone ?? ""}`}>{children}</span>
+      <span className={`kpi-sm truncate ${empty ? "muted" : tone ?? ""}`} title={value}>
+        {value}
+      </span>
+      {sub && <span className="text-[10px] muted truncate" title={sub}>{sub}</span>}
+    </div>
+  );
+}
+
+function SecondaryChips({
+  profitSpot,
+  profitGain,
+  breakevens,
+}: {
+  profitSpot: number | null;
+  profitGain: number | null;
+  breakevens: number[];
+}) {
+  const hasTake = profitSpot != null;
+  const hasBE = breakevens.length > 0;
+  if (!hasTake && !hasBE) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px]">
+      {hasTake && (
+        <span className="text-emerald-400">
+          Take {fmtMoney(profitSpot!)}
+          {profitGain != null && (
+            <span className="ml-1 muted">{fmtSignedMoney(profitGain)}</span>
+          )}
+        </span>
+      )}
+      {hasBE && (
+        <span className="text-amber-400">
+          Breakeven {breakevens.map((b) => fmtMoney(b)).join(" · ")}
+        </span>
+      )}
     </div>
   );
 }
