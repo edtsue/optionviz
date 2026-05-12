@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabase/admin.server";
 import type { Trade } from "@/types/trade";
 
 export type ClosedOutcome = "closed" | "canceled";
+export type ResultTag = "win" | "loss" | "scratch";
 
 export interface ClosedTrade {
   id: string;
@@ -15,6 +16,7 @@ export interface ClosedTrade {
   realizedPnLPct: number | null;
   capitalAtRisk: number | null;
   notes: string | null;
+  resultTag: ResultTag | null;
   closedAt: string;
   createdAt: string;
 }
@@ -31,6 +33,7 @@ interface Row {
   realized_pnl_pct: number | null;
   capital_at_risk: number | null;
   notes: string | null;
+  result_tag: ResultTag | null;
   closed_at: string;
   created_at: string;
 }
@@ -48,6 +51,7 @@ function rowToClosedTrade(r: Row): ClosedTrade {
     realizedPnLPct: r.realized_pnl_pct == null ? null : Number(r.realized_pnl_pct),
     capitalAtRisk: r.capital_at_risk == null ? null : Number(r.capital_at_risk),
     notes: r.notes,
+    resultTag: r.result_tag,
     closedAt: r.closed_at,
     createdAt: r.created_at,
   };
@@ -64,6 +68,7 @@ export interface CreateClosedTradeInput {
   realizedPnLPct: number | null;
   capitalAtRisk: number | null;
   notes: string | null;
+  resultTag?: ResultTag | null;
   closedAt?: string;
 }
 
@@ -93,6 +98,7 @@ export async function createClosedTrade(input: CreateClosedTradeInput): Promise<
       realized_pnl_pct: input.realizedPnLPct,
       capital_at_risk: input.capitalAtRisk,
       notes: input.notes,
+      result_tag: input.resultTag ?? null,
       closed_at: input.closedAt ?? new Date().toISOString(),
     })
     .select()

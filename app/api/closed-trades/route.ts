@@ -19,6 +19,7 @@ const PostSchema = z.object({
   realizedPnLPct: z.number().finite().nullable().optional(),
   capitalAtRisk: z.number().finite().nullable().optional(),
   notes: z.string().max(2_000).nullable().optional(),
+  resultTag: z.enum(["win", "loss", "scratch"]).nullable().optional(),
   closedAt: z.string().datetime().optional(),
 });
 
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
       realizedPnLPct: p.realizedPnLPct ?? null,
       capitalAtRisk: p.capitalAtRisk ?? null,
       notes: p.notes ?? null,
+      resultTag: p.resultTag ?? null,
       closedAt: p.closedAt,
     });
     return NextResponse.json({ closedTrade: created });
