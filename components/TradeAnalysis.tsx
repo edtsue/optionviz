@@ -214,15 +214,16 @@ export function TradeAnalysis({
         profitGain={profitGain}
       />
 
-      {/* HUD — the six numbers always visible: symbol/strike/expiry on the
-          contract side, premium/stop-spot/loss-at-stop on the risk side.
-          Anchored to the short leg (same as the stop logic). */}
+      {/* HUD — the headline numbers always visible: symbol/strike/expiry on
+          the contract side, premium/stop-spot/loss-at-stop/net-delta on the
+          risk side. Anchored to the short leg (same as the stop logic). */}
       <TradeHud
         trade={data.filled}
         anchorLeg={shortLeg ?? data.filled.legs[0] ?? null}
         stopMultiplier={stopMultiplier}
         stopSpot={shortLeg ? stopSpot : null}
         stopLoss={shortLeg ? stopLoss : null}
+        perShareDelta={perShareGreeks(data.filled).delta}
       />
       {/* Secondary chips — Take / Breakeven. Only relevant when the user has
           picked a take-profit row or when the chart has breakevens to call out. */}
@@ -412,12 +413,17 @@ function TradeHud({
   stopMultiplier,
   stopSpot,
   stopLoss,
+  perShareDelta,
 }: {
   trade: Trade;
   anchorLeg: { type: "call" | "put"; strike: number; expiration: string } | null;
   stopMultiplier: number;
   stopSpot: number | null;
   stopLoss: number | null | undefined;
+  /** Per-share delta — broker-standard reading (e.g. 0.45 for a 45-delta
+      long call, −0.30 for a short put). Sums across legs with side sign,
+      no quantity multiplier. */
+  perShareDelta: number | null;
 }) {
   const premium = netPremium(trade);
   const strikeStr = anchorLeg
@@ -425,10 +431,22 @@ function TradeHud({
     : "—";
   const expiry = anchorLeg ? fmtExpiry(anchorLeg.expiration) : null;
   const stopLabel = `Stop (${stopMultiplier.toFixed(1)}×)`;
+  const deltaTone =
+    perShareDelta == null
+      ? undefined
+      : perShareDelta > 0.05
+        ? "text-emerald-400"
+        : perShareDelta < -0.05
+          ? "text-rose-400"
+          : "text-amber-400";
+  const deltaStr =
+    perShareDelta == null
+      ? "—"
+      : `${perShareDelta >= 0 ? "+" : "−"}${Math.abs(perShareDelta).toFixed(2)}`;
 
   return (
     <div className="card card-tight">
-      <div className="grid grid-cols-3 gap-x-4 gap-y-3 sm:grid-cols-6 data-grid">
+      <div className="grid grid-cols-3 gap-x-4 gap-y-3 sm:grid-cols-7 data-grid">
         {/* — Contract group — */}
         <HudCell
           label="Underlying"
@@ -460,6 +478,13 @@ function TradeHud({
           value={stopLoss != null ? fmtSignedMoney(stopLoss) : "—"}
           empty={stopLoss == null}
           tone="text-rose-400"
+        />
+        <HudCell
+          label="Delta"
+          value={deltaStr}
+          sub="per share"
+          tone={deltaTone}
+          empty={perShareDelta == null}
         />
       </div>
     </div>
