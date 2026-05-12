@@ -11,12 +11,13 @@ import type { DetectedStrategy, Trade } from "@/types/trade";
 
 const TRADES_CHANGED_EVENT = "optionviz:trades-changed";
 
-// Throttle the auto-resync to once per this many ms across page navs / tab
-// reopens. The sync hits Yahoo for every unique symbol so we don't want to
-// fire on every sidebar mount, but we do want it cheap enough that a
-// returning user sees fresh broker truth within minutes.
-const RESYNC_TTL_MS = 5 * 60 * 1000;
-const RESYNC_KEY = "optionviz.last-portfolio-resync";
+// How often to background-resync from the latest portfolio snapshot while
+// the tab is visible. Each resync calls one server function that hits Yahoo
+// for each unique symbol, so we don't poll too aggressively.
+const RESYNC_POLL_MS = 2 * 60 * 1000;
+// Don't immediately re-fire on every visibilitychange — bound consecutive
+// resyncs to this minimum gap.
+const RESYNC_MIN_GAP_MS = 30 * 1000;
 
 export function notifyTradesChanged() {
   if (typeof window !== "undefined") {
@@ -24,26 +25,31 @@ export function notifyTradesChanged() {
   }
 }
 
-// Resync the trades list against the latest stored portfolio. Fire-and-forget;
-// errors are swallowed because this is a background freshness pass — if it
-// fails the user still has the previously-synced rows. Manual / WIP trades
-// are not touched by syncPortfolioTrades regardless.
-async function maybeResyncFromPortfolio(): Promise<void> {
-  try {
-    const raw = localStorage.getItem(RESYNC_KEY);
-    const last = raw ? parseInt(raw, 10) : 0;
-    if (Number.isFinite(last) && Date.now() - last < RESYNC_TTL_MS) return;
-    localStorage.setItem(RESYNC_KEY, String(Date.now()));
-    const res = await fetch("/api/portfolio/resync", { method: "POST" });
-    if (!res.ok) return;
-    const j = await res.json().catch(() => null);
-    // Only notify when the sync actually changed something — keeps the
-    // /api/trades refetch off the no-op path.
-    const s = j?.sync as { created?: number; updated?: number; deleted?: number } | null;
-    if (s && (s.created || s.updated || s.deleted)) notifyTradesChanged();
-  } catch {
-    // background sync — never bubbles to the user
-  }
+// Single in-flight tracker so simultaneous triggers (mount + visibility) don't
+// double-fire. The sync route is idempotent anyway, but we save the round-trip.
+let resyncInFlight: Promise<void> | null = null;
+let lastResyncAt = 0;
+
+async function resyncFromPortfolio(force = false): Promise<void> {
+  if (resyncInFlight) return resyncInFlight;
+  if (!force && Date.now() - lastResyncAt < RESYNC_MIN_GAP_MS) return;
+  lastResyncAt = Date.now();
+  resyncInFlight = (async () => {
+    try {
+      const res = await fetch("/api/portfolio/resync", { method: "POST" });
+      if (!res.ok) return;
+      const j = await res.json().catch(() => null);
+      // Only notify when the sync actually changed something — keeps the
+      // /api/trades refetch off the no-op path.
+      const s = j?.sync as { created?: number; updated?: number; deleted?: number } | null;
+      if (s && (s.created || s.updated || s.deleted)) notifyTradesChanged();
+    } catch {
+      // background sync — never bubbles to the user
+    } finally {
+      resyncInFlight = null;
+    }
+  })();
+  return resyncInFlight;
 }
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -74,14 +80,43 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       }, 200);
     }
     load();
-    // Background pass: if the last portfolio snapshot is newer than our last
-    // resync (or none recorded), kick off a server-side resync. Throttled by
-    // RESYNC_TTL_MS so it doesn't fire on every page nav.
-    maybeResyncFromPortfolio();
+    // Keep the sidebar's view of trades aligned with the broker portfolio:
+    //   - resync immediately on mount (first time the layout boots)
+    //   - poll every RESYNC_POLL_MS while the tab is visible
+    //   - resync when the tab comes back into focus (catches "uploaded from
+    //     another tab" / "switched away for an hour")
+    // Each resync is throttled by RESYNC_MIN_GAP_MS so visibility + poll
+    // can't double-fire.
+    resyncFromPortfolio(true);
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    function startPolling() {
+      if (pollTimer != null) return;
+      pollTimer = setInterval(() => {
+        if (document.visibilityState === "visible") resyncFromPortfolio();
+      }, RESYNC_POLL_MS);
+    }
+    function stopPolling() {
+      if (pollTimer != null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        resyncFromPortfolio();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    }
+    if (document.visibilityState === "visible") startPolling();
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener(TRADES_CHANGED_EVENT, scheduleLoad);
     return () => {
       cancelled = true;
       if (pending) clearTimeout(pending);
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(TRADES_CHANGED_EVENT, scheduleLoad);
     };
   }, []);
