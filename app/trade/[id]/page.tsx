@@ -262,6 +262,8 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
     realizedPnL: number;
     realizedPnLPct: number | null;
     capitalAtRisk: number;
+    resultTag: "win" | "loss" | "scratch";
+    closedAt: string;
   }) {
     setCloseOpen(false);
     try {
@@ -278,6 +280,8 @@ function TradeView({ trade: initialTrade, tradeId }: { trade: Trade; tradeId: st
           realizedPnLPct: input.realizedPnLPct,
           capitalAtRisk: input.capitalAtRisk,
           notes: input.notes,
+          resultTag: input.resultTag,
+          closedAt: input.closedAt,
         }),
       });
       if (!res.ok) {
