@@ -23,7 +23,11 @@ export async function POST() {
   if (!data) return NextResponse.json({ sync: null, reason: "no_portfolio" });
 
   try {
-    const sync = await syncPortfolioTrades(data.snapshot as { holdings?: unknown[] });
+    // The snapshot is stored as jsonb; syncPortfolioTrades filters/validates
+    // each holding internally, so passing the raw value through is safe.
+    const sync = await syncPortfolioTrades(
+      data.snapshot as Parameters<typeof syncPortfolioTrades>[0],
+    );
     return NextResponse.json({ sync, snapshotAt: data.created_at });
   } catch (e) {
     const m = e instanceof Error ? e.message : "resync failed";
