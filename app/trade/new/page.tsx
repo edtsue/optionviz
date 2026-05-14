@@ -164,11 +164,8 @@ function NewTradeInner() {
           <div className="label">Capture</div>
           <TicketUpload
             onParsed={(p) => {
-              setTrade((current) => ({
-                ...current,
-                symbol: p.symbol || current.symbol,
-                underlyingPrice: p.underlyingPrice || current.underlyingPrice,
-                legs: p.legs.length
+              setTrade((current) => {
+                const nextLegs = p.legs.length
                   ? p.legs.map((l) => ({
                       type: l.type,
                       side: l.side,
@@ -177,10 +174,38 @@ function NewTradeInner() {
                       quantity: l.quantity ?? 1,
                       premium: l.premium ?? 0,
                     }))
-                  : current.legs,
-                notes: p.notes ?? current.notes,
-                ticketImagePath: p.ticketImagePath ?? current.ticketImagePath,
-              }));
+                  : current.legs;
+                const nextUnderlyingPrice = p.underlyingPrice || current.underlyingPrice;
+                const next: Trade = {
+                  ...current,
+                  symbol: p.symbol || current.symbol,
+                  underlyingPrice: nextUnderlyingPrice,
+                  legs: nextLegs,
+                  notes: p.notes ?? current.notes,
+                  ticketImagePath: p.ticketImagePath ?? current.ticketImagePath,
+                };
+
+                // Silent auto-fill: when the screenshot is explicitly a
+                // covered-call sell (per Claude's strategyHint), populate the
+                // underlying shares so detectStrategy() labels it
+                // "Covered Call" instead of "Naked Short Call". Cost basis
+                // defaults to the current underlying price — the user can
+                // correct it in the Advanced section before saving.
+                if (p.strategyHint === "covered_call" && !next.underlying) {
+                  const shortCall = nextLegs.find(
+                    (l) => l.type === "call" && l.side === "short",
+                  );
+                  if (shortCall) {
+                    const qty = shortCall.quantity > 0 ? shortCall.quantity : 1;
+                    next.underlying = {
+                      shares: qty * 100,
+                      costBasis: nextUnderlyingPrice || shortCall.strike,
+                    };
+                  }
+                }
+
+                return next;
+              });
             }}
           />
           <div className="label">Trade</div>
