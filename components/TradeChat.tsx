@@ -51,10 +51,15 @@ function TradeChatImpl({ trade }: { trade: Trade }) {
   const externalShares = externalSharesFor(portfolioShares, trade.symbol);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, busy]);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
 
   // Paste-from-clipboard support — only when chat is open and focused-ish
   useEffect(() => {
@@ -201,7 +206,7 @@ function TradeChatImpl({ trade }: { trade: Trade }) {
 
       <div ref={scrollRef} className="scroll-soft max-h-80 overflow-y-auto">
         {messages.length === 0 && (
-          <div className="rounded-lg border border-border bg-white/[0.02] p-3 text-xs muted">
+          <div className="px-1 py-2 text-xs muted">
             Ask anything about this position. Drop / paste / attach an image (broker ticket, chart, headline) for visual context.
           </div>
         )}
@@ -277,6 +282,7 @@ function TradeChatImpl({ trade }: { trade: Trade }) {
           className="hidden"
         />
         <input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           type="text"
