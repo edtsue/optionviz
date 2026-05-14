@@ -5,6 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { ChatContextProvider } from "@/lib/chat-context";
 import { SettingsButton } from "./SettingsPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { OfflineBanner } from "./OfflineBanner";
 
 interface Theme {
   accent: string;
@@ -171,6 +172,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <main className="min-w-0 flex-1 pt-12 pb-6 md:pt-0 md:pb-6">
+          <OfflineBanner />
           <ErrorBoundary>{children}</ErrorBoundary>
         </main>
       </div>

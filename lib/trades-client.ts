@@ -1,5 +1,13 @@
 "use client";
 import type { Trade } from "@/types/trade";
+import {
+  cacheTrade,
+  cacheTradeList,
+  getCachedTrade,
+  getCachedTradeList,
+  isNetworkError,
+  removeCachedTrade,
+} from "./offline-cache";
 
 // All DB access goes through the server-side API routes (which use the
 // Supabase secret key). The browser publishable key is restricted by RLS in
@@ -9,24 +17,49 @@ import type { Trade } from "@/types/trade";
 
 export const tradesClient = {
   async list(): Promise<Trade[]> {
-    const res = await fetch("/api/trades", { cache: "no-store" });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error(j.error ?? `List failed (HTTP ${res.status})`);
+    try {
+      const res = await fetch("/api/trades", { cache: "no-store" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `List failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      const trades = (data.trades ?? []) as Trade[];
+      cacheTradeList(trades);
+      return trades;
+    } catch (err) {
+      // Offline: serve whatever we last saw. The OfflineBanner tells the user
+      // their view is cached.
+      if (isNetworkError(err)) {
+        const cached = getCachedTradeList();
+        if (cached) return cached;
+      }
+      throw err;
     }
-    const data = await res.json();
-    return (data.trades ?? []) as Trade[];
   },
 
   async get(id: string): Promise<Trade | null> {
-    const res = await fetch(`/api/trades/${id}`, { cache: "no-store" });
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error(j.error ?? `Get failed (HTTP ${res.status})`);
+    try {
+      const res = await fetch(`/api/trades/${id}`, { cache: "no-store" });
+      if (res.status === 404) {
+        removeCachedTrade(id);
+        return null;
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `Get failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      const trade = (data.trade ?? null) as Trade | null;
+      if (trade) cacheTrade(trade);
+      return trade;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const cached = getCachedTrade(id);
+        if (cached) return cached;
+      }
+      throw err;
     }
-    const data = await res.json();
-    return (data.trade ?? null) as Trade | null;
   },
 
   async create(trade: Trade): Promise<string> {
@@ -40,7 +73,9 @@ export const tradesClient = {
       throw new Error(j.error ?? `Save failed (HTTP ${res.status})`);
     }
     const data = await res.json();
-    return data.id as string;
+    const id = data.id as string;
+    cacheTrade({ ...trade, id });
+    return id;
   },
 
   async updateSpot(
@@ -55,14 +90,18 @@ export const tradesClient = {
     });
     if (res.status === 409) {
       const data = await res.json();
-      return { trade: data.trade as Trade, stale: true };
+      const trade = data.trade as Trade;
+      cacheTrade(trade);
+      return { trade, stale: true };
     }
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       throw new Error(j.error ?? `Update spot failed (HTTP ${res.status})`);
     }
     const data = await res.json();
-    return { trade: data.trade as Trade };
+    const trade = data.trade as Trade;
+    cacheTrade(trade);
+    return { trade };
   },
 
   async fetchSpot(
@@ -92,7 +131,9 @@ export const tradesClient = {
       throw new Error(j.error ?? `Save failed (HTTP ${res.status})`);
     }
     const data = await res.json();
-    return data.trade as Trade;
+    const updated = data.trade as Trade;
+    cacheTrade(updated);
+    return updated;
   },
 
   async remove(id: string): Promise<void> {
@@ -101,5 +142,6 @@ export const tradesClient = {
       const j = await res.json().catch(() => ({}));
       throw new Error(j.error ?? `Delete failed (HTTP ${res.status})`);
     }
+    removeCachedTrade(id);
   },
 };
