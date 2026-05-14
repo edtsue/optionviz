@@ -20,6 +20,9 @@ interface ParsedTicket {
   /** Names of fields the parser had to infer (year missing, blurry digit,
       etc.) — surfaced as a softer warning so the user double-checks. */
   lowConfidence?: string[];
+  /** Strategy hint detected from explicit ticket labels — used by the
+      new-trade page to silently fill underlying shares for covered calls. */
+  strategyHint?: "covered_call" | "cash_secured_put" | "none";
 }
 
 interface Staged {

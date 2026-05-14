@@ -32,6 +32,13 @@ const TicketSchema = z.object({
   /** Free-form list of fields Claude had to infer (e.g. "leg 1 expiration year")
       so the UI can surface them in amber for the user to confirm. */
   lowConfidence: z.array(z.string()).default([]).optional(),
+  /** Strategy detected from explicit ticket labels (e.g. "Covered Call",
+      "Cash-Secured Put"). Lets the new-trade page pre-fill underlying shares
+      so detectStrategy() labels the position correctly. */
+  strategyHint: z
+    .enum(["covered_call", "cash_secured_put", "none"])
+    .nullish()
+    .transform((v) => v ?? "none"),
 });
 
 const SYSTEM_PROMPT = `You are an options trade-ticket parser. Given a screenshot of a brokerage option order ticket (Schwab SnapTicket, Fidelity, Robinhood, IBKR, ToS, Tastytrade, etc.), extract the trade as strict JSON.
@@ -55,13 +62,20 @@ Rules:
 - "symbol" is the underlying ticker only (e.g. "RKLB", not "RKLB May 29 2026 82 C"). Tickers are 1–6 uppercase letters.
 - If multi-leg, return all legs.
 
+Strategy detection (set "strategyHint"):
+- "covered_call" when the ticket has a SINGLE short-call leg AND any of these signals is present: an explicit "Covered Call" / "Covered" / "BuyWrite" strategy label; a "covered by shares" or "shares held: 100+" indication; the order builder shows the option being written against shares; or it is otherwise unambiguously a covered position.
+- "cash_secured_put" when the ticket has a SINGLE short-put leg AND any of these signals is present: an explicit "Cash-Secured Put" / "CSEP" / "Cash Secured" label, or a buying-power/cash-collateral note that matches strike × 100 × qty.
+- Otherwise set "strategyHint" to "none".
+- Never guess covered_call or cash_secured_put for multi-leg tickets.
+
 Return ONLY a JSON object matching:
 {
   "symbol": string,
   "underlyingPrice": number,
   "legs": [{ "type": "call"|"put", "side": "long"|"short", "strike": number|null, "expiration": "YYYY-MM-DD", "quantity": number|null, "premium": number|null }],
   "notes": string | null,
-  "lowConfidence": string[]   // list any field you had to infer (e.g. "leg 1 expiration year", "leg 2 premium" if blurry); empty array when everything is clearly visible
+  "lowConfidence": string[],  // list any field you had to infer (e.g. "leg 1 expiration year", "leg 2 premium" if blurry); empty array when everything is clearly visible
+  "strategyHint": "covered_call" | "cash_secured_put" | "none"
 }
 No prose, no markdown fences.`;
 
