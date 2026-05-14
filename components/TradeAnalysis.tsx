@@ -494,18 +494,22 @@ function TradeHud({
     : "—";
   const expiry = anchorLeg ? fmtExpiry(anchorLeg.expiration) : null;
   const stopLabel = `Stop (${stopMultiplier.toFixed(1)}×)`;
+  // Per-contract delta = per-share delta × 100 (standard option multiplier).
+  // This is the gross-delta number traders read off broker tickets.
+  const perContractDelta =
+    perShareDelta == null ? null : perShareDelta * 100;
   const deltaTone =
-    perShareDelta == null
+    perContractDelta == null
       ? undefined
-      : perShareDelta > 0.05
+      : perContractDelta > 5
         ? "text-emerald-400"
-        : perShareDelta < -0.05
+        : perContractDelta < -5
           ? "text-rose-400"
           : "text-amber-400";
   const deltaStr =
-    perShareDelta == null
+    perContractDelta == null
       ? "—"
-      : `${perShareDelta >= 0 ? "+" : "−"}${Math.abs(perShareDelta).toFixed(2)}`;
+      : `${perContractDelta >= 0 ? "+" : "−"}${Math.abs(perContractDelta).toFixed(1)}`;
 
   return (
     <div className="card card-tight">
@@ -545,9 +549,9 @@ function TradeHud({
         <HudCell
           label="Delta"
           value={deltaStr}
-          sub="per share"
+          sub="per contract"
           tone={deltaTone}
-          empty={perShareDelta == null}
+          empty={perContractDelta == null}
         />
       </div>
     </div>
