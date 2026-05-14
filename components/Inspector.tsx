@@ -4,11 +4,16 @@ import type { Trade } from "@/types/trade";
 import type { NetGreeks, TradeStats } from "@/lib/payoff";
 
 interface Props {
+  /** Per-share Greeks (broker convention — delta in [-1, 1]). */
   greeks: NetGreeks;
   stats: TradeStats;
   trade: Trade;
   asOfLabel?: string;
 }
+
+// Single equity option = 100 shares. Display Greeks at the contract level so
+// values stay readable on far-OTM legs where per-share delta is < 0.0005.
+const CONTRACT_MULT = 100;
 
 function fmtUsd(v: number | "unlimited"): string {
   if (v === "unlimited") return "∞";
@@ -55,7 +60,7 @@ function InspectorImpl({ greeks, stats, trade, asOfLabel }: Props) {
 
         <div className="border-t border-border pt-3">
           <div className="mb-2 flex items-baseline justify-between">
-            <span className="text-[10px] uppercase tracking-wider muted">Greeks · per share</span>
+            <span className="text-[10px] uppercase tracking-wider muted">Greeks · per contract</span>
             {asOf && (
               <span className="text-[10px] warn" title="Slider has moved time forward">
                 as of {asOf}
@@ -65,9 +70,10 @@ function InspectorImpl({ greeks, stats, trade, asOfLabel }: Props) {
           <div className="grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] gap-x-3 gap-y-3 data-grid">
             <Cell
               label="Delta"
-              value={fmtDecimal(greeks.delta, 4)}
+              value={fmtDecimal(greeks.delta * CONTRACT_MULT, 2)}
+              sub={`${fmtDecimal(greeks.delta, 3)}/sh`}
               t={greeks.delta > 0 ? "gain" : greeks.delta < 0 ? "loss" : ""}
-              title="Per-share delta, summed across legs"
+              title="Share-equivalent delta per contract (per-share × 100)"
             />
             <Cell
               label="IV"
@@ -76,9 +82,10 @@ function InspectorImpl({ greeks, stats, trade, asOfLabel }: Props) {
             />
             <Cell
               label="Theta"
-              value={fmtDecimal(greeks.theta, 3)}
+              value={fmtUsd(+(greeks.theta * CONTRACT_MULT).toFixed(0))}
+              sub={`${fmtDecimal(greeks.theta, 3)}/sh`}
               t={greeks.theta > 0 ? "gain" : greeks.theta < 0 ? "loss" : ""}
-              title="$ per share per day"
+              title="$ change per day per contract"
             />
           </div>
         </div>
@@ -96,21 +103,24 @@ function InspectorImpl({ greeks, stats, trade, asOfLabel }: Props) {
             <Cell label="Margin (est)" value={fmtUsd(stats.marginEstimate)} />
             <Cell
               label="Gamma"
-              value={fmtDecimal(greeks.gamma, 4)}
+              value={fmtDecimal(greeks.gamma * CONTRACT_MULT, 3)}
+              sub={`${fmtDecimal(greeks.gamma, 4)}/sh`}
               t={greeks.gamma > 0 ? "gain" : greeks.gamma < 0 ? "loss" : ""}
-              title="Per-share gamma"
+              title="Gamma per contract (per-share × 100)"
             />
             <Cell
               label="Vega"
-              value={fmtDecimal(greeks.vega, 3)}
+              value={fmtUsd(+(greeks.vega * CONTRACT_MULT).toFixed(0))}
+              sub={`${fmtDecimal(greeks.vega, 3)}/sh`}
               t={greeks.vega > 0 ? "gain" : greeks.vega < 0 ? "loss" : ""}
-              title="$ per share per 1 IV pt"
+              title="$ change per 1 IV pt per contract"
             />
             <Cell
               label="Rho"
-              value={fmtDecimal(greeks.rho, 3)}
+              value={fmtUsd(+(greeks.rho * CONTRACT_MULT).toFixed(0))}
+              sub={`${fmtDecimal(greeks.rho, 3)}/sh`}
               t={greeks.rho > 0 ? "gain" : greeks.rho < 0 ? "loss" : ""}
-              title="$ per share per 1% rate"
+              title="$ change per 1% rate per contract"
             />
           </div>
         )}
