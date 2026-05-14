@@ -509,7 +509,7 @@ function TradeHud({
   const deltaStr =
     perContractDelta == null
       ? "—"
-      : `${perContractDelta >= 0 ? "+" : "−"}${Math.abs(perContractDelta).toFixed(1)}`;
+      : `${perContractDelta >= 0 ? "+" : "−"}${Math.abs(perContractDelta).toFixed(2)}`;
 
   return (
     <div className="card card-tight">
