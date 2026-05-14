@@ -279,6 +279,12 @@ function TradeChatImpl({ trade }: { trade: Trade }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          type="text"
+          name="trade-chat-message"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="send"
           placeholder={staged ? "Add a question (optional)…" : "Ask anything about this trade…"}
           disabled={busy}
           className="flex-1 rounded-md border border-border bg-white/[0.02] px-3 py-2 text-sm"
