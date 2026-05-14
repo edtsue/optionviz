@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { impliedVol, yearsBetween } from "@/lib/black-scholes";
 import type { Leg, Trade } from "@/types/trade";
+import { NumberInput } from "@/components/NumberInput";
 
 function clientKey(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -161,11 +162,10 @@ export function TradeForm({ trade, onChange, onSave, hideSave = false }: Props) 
             />
           </Field>
           <Field label="Underlying $">
-            <input
-              type="number"
+            <NumberInput
               step="0.01"
               value={trade.underlyingPrice}
-              onChange={(e) => setTrade({ ...trade, underlyingPrice: +e.target.value })}
+              onValueChange={(v) => setTrade({ ...trade, underlyingPrice: v })}
             />
           </Field>
         </div>
@@ -204,14 +204,13 @@ export function TradeForm({ trade, onChange, onSave, hideSave = false }: Props) 
             </Field>
             {trade.underlying && (
               <Field label="Share cost basis">
-                <input
-                  type="number"
+                <NumberInput
                   step="0.01"
                   value={trade.underlying.costBasis}
-                  onChange={(e) =>
+                  onValueChange={(v) =>
                     setTrade({
                       ...trade,
-                      underlying: { ...trade.underlying!, costBasis: +e.target.value },
+                      underlying: { ...trade.underlying!, costBasis: v },
                     })
                   }
                 />
@@ -250,26 +249,23 @@ export function TradeForm({ trade, onChange, onSave, hideSave = false }: Props) 
                 </select>
               </Field>
               <Field label="Quantity">
-                <input
-                  type="number"
+                <NumberInput
                   value={leg.quantity}
-                  onChange={(e) => setLeg(i, { quantity: +e.target.value })}
+                  onValueChange={(v) => setLeg(i, { quantity: v })}
                 />
               </Field>
               <Field label="Strike">
-                <input
-                  type="number"
+                <NumberInput
                   step="0.5"
                   value={leg.strike}
-                  onChange={(e) => setLeg(i, { strike: +e.target.value })}
+                  onValueChange={(v) => setLeg(i, { strike: v })}
                 />
               </Field>
               <Field label="Premium">
-                <input
-                  type="number"
+                <NumberInput
                   step="0.01"
                   value={leg.premium}
-                  onChange={(e) => setLeg(i, { premium: +e.target.value })}
+                  onValueChange={(v) => setLeg(i, { premium: v })}
                 />
               </Field>
               <Field label="IV (%) override">

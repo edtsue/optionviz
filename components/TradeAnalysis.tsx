@@ -541,10 +541,10 @@ function TradeHud({
           tone="text-rose-400"
         />
         <HudCell
-          label="Loss @ stop"
+          label={stopLoss != null && stopLoss >= 0 ? "Gain @ stop" : "Loss @ stop"}
           value={stopLoss != null ? fmtSignedMoney(stopLoss) : "—"}
           empty={stopLoss == null}
-          tone="text-rose-400"
+          tone={stopLoss != null && stopLoss >= 0 ? "text-emerald-400" : "text-rose-400"}
         />
         <HudCell
           label="Delta"

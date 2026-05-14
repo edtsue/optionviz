@@ -10,6 +10,7 @@
 // reach the target inside a reasonable spot range (e.g., deep-ITM already).
 
 import { bs, yearsBetween } from "./black-scholes";
+import { totalPnL } from "./payoff";
 import type { Leg, Trade } from "@/types/trade";
 
 const DEFAULT_IV = 0.3;
@@ -200,4 +201,86 @@ export function findShortLeg(trade: Trade): Leg | null {
   // Pick the highest-quantity short, or the first if all equal.
   shorts.sort((a, b) => b.quantity - a.quantity);
   return shorts[0];
+}
+
+// Covered-call-like: there's a stock leg and the dominant short is a call.
+// The decay-based profit-taking ladder doesn't make sense for these (decay
+// requires stock to drop, which loses on the share leg), so we render a
+// spot-target ladder instead.
+export function isCoveredCallLike(trade: Trade): boolean {
+  if (!trade.underlying || trade.underlying.shares <= 0) return false;
+  const sl = findShortLeg(trade);
+  return !!sl && sl.type === "call";
+}
+
+export interface CoveredProfitRow {
+  /** Fraction of max profit at expiry — 10 = 10%, 90 = 90%. */
+  pct: number;
+  /** Spot at which expiry P/L = pct × maxProfit. */
+  spot: number;
+  /** BTC price (Black-Scholes) for the short leg at that spot, today. */
+  contractPrice: number;
+  /** Today's net position P/L if spot reaches that level right now. */
+  profit: number;
+}
+
+/**
+ * Profit-taking ladder for covered-call-like positions. For each level (a
+ * % of max profit at expiry), find the spot S* at which the at-expiry net
+ * P/L equals that fraction of max, then report today's net P/L and today's
+ * BTC price for the short leg at S* — i.e. the actionable numbers a CC
+ * writer reads to decide whether to close early.
+ */
+export function computeCoveredProfitLadder(
+  trade: Trade,
+  levels: number[],
+  asOf?: Date,
+): CoveredProfitRow[] {
+  if (!isCoveredCallLike(trade)) return [];
+  const shortLeg = findShortLeg(trade);
+  if (!shortLeg) return [];
+  const expiry = new Date(shortLeg.expiration);
+  if (Number.isNaN(expiry.getTime())) return [];
+
+  // Max profit lands at (or above) strike at expiry.
+  const maxProfit = totalPnL(trade, shortLeg.strike, expiry);
+  if (!Number.isFinite(maxProfit) || maxProfit <= 0) return [];
+
+  const now = asOf ?? new Date();
+  const T = yearsBetween(now, expiry);
+  const sigma = shortLeg.iv && shortLeg.iv > 0 ? shortLeg.iv : DEFAULT_IV;
+  const r = trade.riskFreeRate ?? 0.04;
+
+  // Below strike the at-expiry P/L is linear in spot (slope = shares); above
+  // strike it's capped. Search [0, strike] for each target.
+  const lo0 = 0;
+  const hi0 = shortLeg.strike;
+
+  return levels.map((pct) => {
+    const target = (pct / 100) * maxProfit;
+    let lo = lo0;
+    let hi = hi0;
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2;
+      const v = totalPnL(trade, mid, expiry);
+      if (Math.abs(v - target) < 0.5) {
+        lo = hi = mid;
+        break;
+      }
+      if (v < target) lo = mid;
+      else hi = mid;
+    }
+    const spot = +((lo + hi) / 2).toFixed(2);
+    const contractPrice =
+      T > 0
+        ? bs({ S: spot, K: shortLeg.strike, T, r, sigma, type: shortLeg.type }).price
+        : Math.max(spot - shortLeg.strike, 0);
+    const profit = +totalPnL(trade, spot, now).toFixed(0);
+    return {
+      pct,
+      spot,
+      contractPrice: +contractPrice.toFixed(2),
+      profit,
+    };
+  });
 }

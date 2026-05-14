@@ -1,7 +1,12 @@
 "use client";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Trade } from "@/types/trade";
-import { computeProfitSpot, findShortLeg } from "@/lib/stop-spot";
+import {
+  computeCoveredProfitLadder,
+  computeProfitSpot,
+  findShortLeg,
+  isCoveredCallLike,
+} from "@/lib/stop-spot";
 import { totalPnL } from "@/lib/payoff";
 
 type Strategy = "covered_call" | "cash_secured_put";
@@ -427,7 +432,7 @@ function TradeChecklistImpl(props: Props) {
             );
           })()}
           <div>
-            Loss at stop:{" "}
+            {stopLoss != null && stopLoss >= 0 ? "Gain at stop:" : "Loss at stop:"}{" "}
             <span className="font-semibold">
               {stopLoss != null
                 ? `${stopLoss < 0 ? "−" : "+"}$${Math.abs(stopLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
@@ -528,10 +533,23 @@ function ProfitMultiplierBox({
   onProfitTargetSpotChange?: (spot: number | null) => void;
 }) {
   const shortLeg = useMemo(() => findShortLeg(trade), [trade]);
+  const coveredCall = useMemo(() => isCoveredCallLike(trade), [trade]);
 
   const rows = useMemo(() => {
     if (!shortLeg) return [];
     const now = new Date();
+    // For covered-call-like positions, the decay-based ladder is misleading
+    // (decay requires the stock to drop, which sinks the share leg into a
+    // net loss). Use a spot-target ladder pegged to % of max profit instead.
+    if (coveredCall) {
+      return computeCoveredProfitLadder(trade, PROFIT_LEVELS, now).map((r) => ({
+        pct: r.pct,
+        spot: r.spot,
+        contractPrice: r.contractPrice,
+        profit: r.profit,
+        alreadyReached: false,
+      }));
+    }
     return PROFIT_LEVELS.map((pct) => {
       const r = computeProfitSpot({
         trade,
@@ -547,13 +565,15 @@ function ProfitMultiplierBox({
         alreadyReached: r.alreadyReached,
       };
     });
-  }, [trade, shortLeg]);
+  }, [trade, shortLeg, coveredCall]);
 
   if (!shortLeg) return null;
 
-  const headerHint = onProfitTargetSpotChange
-    ? "click a row to mark it on the chart"
-    : null;
+  const headerHint = coveredCall
+    ? "% of max profit at expiry — spot the stock would need to reach"
+    : onProfitTargetSpotChange
+      ? "click a row to mark it on the chart"
+      : null;
 
   return (
     <div className="rounded-md border border-border bg-white/[0.02] p-2.5">
